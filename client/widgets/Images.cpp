@@ -135,6 +135,11 @@ void CPicture::scaleTo(Point size)
 
 void CPicture::setPlayerColor(PlayerColor player)
 {
+	if (player.isSpectator())
+	{
+		player = PlayerColor(1);
+	}
+
 	bg->playerColored(player);
 }
 
@@ -194,6 +199,11 @@ void CFilledTexture::showAll(Canvas & to)
 
 void FilledTexturePlayerIndexed::setPlayerColor(PlayerColor player)
 {
+	if (player.isSpectator())
+	{
+		player = PlayerColor(1);
+	}
+
 	texture->playerColored(player);
 }
 
@@ -204,6 +214,11 @@ FilledTexturePlayerColored::FilledTexturePlayerColored(Rect position)
 
 void FilledTexturePlayerColored::setPlayerColor(PlayerColor player)
 {
+	if (player.isSpectator())
+	{
+		player = PlayerColor(1);
+	}
+
 	ImagePath imagePath = ImagePath::builtin("DialogBoxBackground_" + player.toString() + ".bmp");
 
 	texture = ENGINE->renderHandler().loadImage(imagePath, EImageBlitMode::COLORKEY);
@@ -327,7 +342,15 @@ void CAnimImage::setFrame(size_t Frame, size_t Group)
 
 void CAnimImage::setPlayerColor(PlayerColor currPlayer)
 {
-	player = currPlayer;
+	if (currPlayer.isSpectator())
+	{
+		player = PlayerColor(1);
+	}
+	else
+	{
+		player = currPlayer;
+	}
+
 	anim->getImage(frame, group)->playerColored(*player);
 	if (flags & CShowableAnim::BASE)
 			anim->getImage(0, group)->playerColored(*player);

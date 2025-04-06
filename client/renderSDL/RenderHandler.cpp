@@ -373,7 +373,7 @@ std::shared_ptr<SDLImageShared> RenderHandler::loadScaledImage(const ImageLocato
 		imagePathString += "-SHADOW";
 	if(locator.playerColored.isValidPlayer())
 		imagePathString += "-" + boost::to_upper_copy(GameConstants::PLAYER_COLOR_NAMES[locator.playerColored.getNum()]);
-	if(locator.playerColored == PlayerColor::NEUTRAL)
+	if(locator.playerColored == PlayerColor::NEUTRAL || locator.playerColored == PlayerColor::SPECTATOR)
 		imagePathString += "-NEUTRAL";
 
 	auto imagePath = ImagePath::builtin(imagePathString);
