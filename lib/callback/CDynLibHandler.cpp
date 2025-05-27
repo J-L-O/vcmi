@@ -24,6 +24,9 @@
 #  ifdef ENABLE_BATTLE_AI
 #    include "../../AI/BattleAI/BattleAI.h"
 #  endif
+#  ifdef ENABLE_RLBATTLE_AI
+#    include "../../AI/RLBattleAI/RLBattleAI.h"
+#  endif
 #  ifdef ENABLE_STUPID_AI
 #    include "../../AI/StupidAI/StupidAI.h"
 #  endif
@@ -136,6 +139,11 @@ std::shared_ptr<CBattleGameInterface> createAny(const boost::filesystem::path & 
 #ifdef ENABLE_BATTLE_AI
 	if(libpath.stem() == "libBattleAI")
 		return std::make_shared<CBattleAI>();
+#endif
+
+#ifdef ENABLE_RLBATTLE_AI
+	if(libpath.stem() == "libRLBattleAI")
+		return std::make_shared<CRLBattleAI>();
 #endif
 
 #ifdef ENABLE_STUPID_AI

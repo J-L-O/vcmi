@@ -507,7 +507,7 @@ set(lib_MAIN_HEADERS
 	callback/GameRandomizer.h
 	callback/MapInfoCallback.h
 	callback/EditorCallback.h
-	
+
 	campaign/CampaignBonus.h
 	campaign/CampaignConstants.h
 	campaign/CampaignHandler.h
@@ -652,6 +652,7 @@ set(lib_MAIN_HEADERS
 	networkPacks/NetPacksBase.h
 	networkPacks/NetPackVisitor.h
 	networkPacks/ObjProperty.h
+		networkPacks/PacksForAIServerBattle.h
 	networkPacks/PacksForClient.h
 	networkPacks/PacksForClientBattle.h
 	networkPacks/PacksForLobby.h
@@ -859,8 +860,12 @@ if(ENABLE_STATIC_LIBS AND ENABLE_CLIENT)
 	endif()
 
 	if(ENABLE_BATTLE_AI)
-		target_link_libraries(vcmi PRIVATE BattleAI)
-	endif()
+		target_link_libraries(vcmi PRIVATE RLBattleAI)
+    endif()
+
+    if(ENABLE_RLBATTLE_AI)
+        target_link_libraries(vcmi PRIVATE BattleAI)
+    endif()
 
 	if(ENABLE_MMAI)
 		target_link_libraries(vcmi PRIVATE MMAI)
