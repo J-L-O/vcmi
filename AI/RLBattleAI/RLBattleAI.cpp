@@ -10,8 +10,6 @@
 #include "StdInc.h"
 #include "RLBattleAI.h"
 
-#include <boost/asio/connect.hpp>
-#include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
 #include "CThreadHelper.h"
@@ -22,33 +20,22 @@
 #include "client/ConditionalWait.h"
 #include "../../lib/network/NetworkHandler.h"
 #include "../../lib/networkPacks/PacksForAIServerBattle.h"
+#include "battle/BattleLayout.h"
+#include "mapObjects/CGTownInstance.h"
+#include "networkPacks/PacksForClientBattle.h"
 // #include "networkPacks/PacksForClientBattle.h"
 
 
 CRLBattleAI::CRLBattleAI()
 	: side(BattleSide::NONE)
-	//, resolver(io_context)
-	//, endpoints(resolver.resolve("127.0.0.1", "65432"))
 	, networkHandler(INetworkHandler::createHandler())
-	//, context(std::make_shared<NetworkContext>())
-	//, socket(std::make_shared<NetworkSocket>(*context))
-	//, networkConnection(std::make_shared<NetworkConnection>(*this, socket, context))
-	//, connection(std::make_shared<CConnection>(networkConnection))
 	, threadNetwork(&CRLBattleAI::threadRunNetwork, this)
+	, actionReady(false)
 	, wasWaitingForRealize(false)
 	, wasUnlockingGs(false)
 {
-	//boost::asio::connect(socket, endpoints);
-	// void GlobalLobbyClient::connect()
-	// {
-	// 	std::string hostname = getServerHost();
-	// 	uint16_t port = getServerPort();
-	// 	CSH->getNetworkHandler().connectToRemote(*this, hostname, port);
-	// }
-
 	std::string hostname = "127.0.0.1";
 	uint16_t port = 65432;
-	// std::unique_ptr<INetworkHandler> networkHandler = NetworkHandler::createHandler();
 	networkHandler->connectToRemote(*this, hostname, port);
 
 	print("created");
@@ -128,13 +115,34 @@ void CRLBattleAI::activeStack(const BattleID & battleID, const CStack * stack)
 	//boost::this_thread::sleep_for(boost::chrono::seconds(2));
 	print("activeStack called for " + stack->nodeName());
 
-	BattleStateUpdate pack;
+	BattleStart pack;
 	pack.battleID = battleID;
-	pack.info = cb->getBattle(battleID)->getBattle();
-	logicConnection->sendPack(pack);  // TODO: Need to make sure that connection is actually established at this point
 
-	cb->battleMakeUnitAction(battleID, BattleAction::makeDefend(stack));
-	return;
+	int3 tile = cb->getBattle(battleID)->getBattle()->getLocation();
+	TerrainId terrain = cb->getBattle(battleID)->battleTerrainType();
+	BattleField battlefieldType = cb->getBattle(battleID)->getBattle()->getBattlefieldType();
+	BattleLayout layout = cb->getBattle(battleID)->getBattle()->getLayout();
+	const CGTownInstance *town = cb->getBattle(battleID)->battleGetDefendedTown();
+
+	const CArmedInstance *army1 = cb->getBattle(battleID)->getBattle()->getSideArmy(BattleSide::ATTACKER);
+	const CArmedInstance *army2 = cb->getBattle(battleID)->getBattle()->getSideArmy(BattleSide::DEFENDER);
+	BattleSideArray<const CArmedInstance *> armies{army1, army2};
+
+	const CGHeroInstance *hero1 = cb->getBattle(battleID)->getBattle()->getSideHero(BattleSide::ATTACKER);
+	const CGHeroInstance *hero2 = cb->getBattle(battleID)->getBattle()->getSideHero(BattleSide::DEFENDER);
+	BattleSideArray<const CGHeroInstance*>heroes{hero1, hero2};
+
+	pack.info = BattleInfo::setupBattle(tile, terrain, battlefieldType, armies, heroes, layout, town);
+	logicConnection->sendPack(pack);
+
+	{
+		std::unique_lock lk(actionMtx);
+		actionCV.wait(lk, [this]{ return actionReady; });
+
+		cb->battleMakeUnitAction(battleID, BattleAction::makeDefend(stack));
+		actionReady = false;
+		actionCV.notify_one();
+	}
 }
 
 void CRLBattleAI::battleAttack(const BattleID & battleID, const BattleAttack *ba)
@@ -197,21 +205,25 @@ void CRLBattleAI::battleCatapultAttacked(const BattleID & battleID, const Catapu
 void CRLBattleAI::onPacketReceived(const std::shared_ptr<INetworkConnection> &, const std::vector<std::byte> &message) {
 	// std::unique_ptr<CPack> pack = logicConnection->retrievePack(message);
 	auto pack = logicConnection->retrievePack(message);
+
+	std::unique_lock lk(actionMtx);
+	actionCV.wait(lk, [this]{ return !actionReady; });
+
+	// TODO: Set nextAction from pack contents
+	actionReady = true;
+	actionCV.notify_one();
 	// ServerHandlerCPackVisitor visitor(*this);
 	// pack->visit(visitor);
 }
 
 void CRLBattleAI::onConnectionFailed(const std::string &errorMessage) {
+	logNetwork->info(errorMessage);
 }
 
 void CRLBattleAI::onConnectionEstablished(const NetworkConnectionPtr & netConnection) {
 	networkConnection = netConnection;
-
 	logNetwork->info("Connection established");
-
 	logicConnection = std::make_shared<CConnection>(netConnection);
-	// logicConnection->uuid = uuid;
-	// logicConnection->enterLobbyConnectionMode();
 }
 
 void CRLBattleAI::onDisconnected(const std::shared_ptr<INetworkConnection> &, const std::string &errorMessage) {

@@ -14,6 +14,7 @@
 #include "../../lib/battle/BattleHex.h"
 #include "../../lib/battle/ReachabilityInfo.h"
 #include "../../lib/CGameInterface.h"
+#include "battle/BattleAction.h"
 #include "network/NetworkConnection.h"
 #include "serializer/Connection.h"
 #include "lib/networkPacks/PacksForClient.h"
@@ -38,6 +39,11 @@ class CRLBattleAI : public CBattleGameInterface, INetworkClientListener
 	std::unique_ptr<INetworkHandler> networkHandler;
 
 	boost::thread threadNetwork;
+
+	bool actionReady;
+	std::mutex actionMtx;
+	std::condition_variable actionCV;
+	BattleAction nextAction;
 
 	bool wasWaitingForRealize;
 	bool wasUnlockingGs;
