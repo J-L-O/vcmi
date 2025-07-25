@@ -32,7 +32,7 @@ struct DLL_LINKAGE BattleStateUpdate : public CPackForClient
 	void applyGs(CGameState * gs) override;
 
 	BattleID battleID = BattleID::NONE;
-	const IBattleInfo *info = nullptr;
+	BattleInfo * info = nullptr;
 
 	void visitTyped(ICPackVisitor & visitor) override;
 
