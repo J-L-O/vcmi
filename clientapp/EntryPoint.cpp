@@ -301,7 +301,7 @@ int main(int argc, char * argv[])
 
 	if (ENGINE)
 		ENGINE->setEngineUser(GAME.get());
-	
+
 #ifndef VCMI_NO_THREADED_LOAD
 	//we can properly play intro only in the main thread, so we have to move loading to the separate thread
 	std::thread loading([]()
@@ -372,7 +372,7 @@ int main(int argc, char * argv[])
 		else
 			GAME->mainmenu()->playMusic();
 	}
-	
+
 #ifndef VCMI_UNIX
 	// on Linux, name of main thread is also name of our process. Which we don't want to change
 	setThreadName("MainGUI");
