@@ -208,11 +208,8 @@ void CClient::initMapHandler()
 	// TODO: CMapHandler initialization can probably go somewhere else
 	// It's can't be before initialization of interfaces
 	// During loading CPlayerInterface from serialized state it's depend on MH
-	if(!settings["session"]["headless"].Bool())
-	{
-		GAME->setMapInstance(std::make_unique<CMapHandler>(&gameState().getMap()));
-		logNetwork->trace("Creating mapHandler: %d ms", GAME->server().th->getDiff());
-	}
+	GAME->setMapInstance(std::make_unique<CMapHandler>(&gameState().getMap()));
+	logNetwork->trace("Creating mapHandler: %d ms", GAME->server().th->getDiff());
 }
 
 void CClient::initPlayerEnvironments()
@@ -246,6 +243,9 @@ void CClient::initPlayerEnvironments()
 
 void CClient::initPlayerInterfaces()
 {
+	const auto & forcedAIs = settings["session"]["forcedAIs"].Vector();
+	size_t forcedAIIndex = 0;
+
 	for(const auto & playerInfo : gameState().getStartInfo()->playerInfos)
 	{
 		PlayerColor color = playerInfo.first;
@@ -262,7 +262,23 @@ void CClient::initPlayerInterfaces()
 					if (gameState().getPlayerTeam(allyInfo.first) == gameState().getPlayerTeam(playerInfo.first) && allyInfo.second.isControlledByHuman())
 						alliedToHuman = true;
 
-				auto AiToGive = aiNameForPlayer(playerInfo.second, false, alliedToHuman);
+				std::string AiToGive;
+				if(forcedAIIndex < forcedAIs.size() && forcedAIs[forcedAIIndex].isString())
+				{
+					const auto & forcedAIName = forcedAIs[forcedAIIndex].String();
+					if(!forcedAIName.empty())
+					{
+						const boost::filesystem::path aiPath = VCMIDirs::get().fullLibraryPath("AI", forcedAIName);
+						if(boost::filesystem::exists(aiPath))
+							AiToGive = forcedAIName;
+						else
+							logNetwork->warn("Requested AI '%s' for player %s was not found at %s, falling back to default", forcedAIName, color.toString(), aiPath.string());
+					}
+				}
+				forcedAIIndex++;
+
+				if(AiToGive.empty())
+					AiToGive = aiNameForPlayer(playerInfo.second, false, alliedToHuman);
 				logNetwork->info("Player %s will be lead by %s", color.toString(), AiToGive);
 				installNewPlayerInterface(CDynLibHandler::getNewAI(AiToGive), color);
 			}
@@ -492,9 +508,16 @@ void CClient::startPlayerBattleAction(const BattleID & battleID, PlayerColor col
 
 	if (!battleint->human)
 	{
-		// we want to avoid locking gamestate and causing UI to freeze while AI is making turn
-		auto unlockInterface = vstd::makeUnlockGuard(ENGINE->interfaceMutex);
-		battleint->activeStack(battleID, gameState().getBattle(battleID)->battleGetStackByID(gameState().getBattle(battleID)->activeStack, false));
+		if (ENGINE)
+		{
+			// we want to avoid locking gamestate and causing UI to freeze while AI is making turn
+			auto unlockInterface = vstd::makeUnlockGuard(ENGINE->interfaceMutex);
+			battleint->activeStack(battleID, gameState().getBattle(battleID)->battleGetStackByID(gameState().getBattle(battleID)->activeStack, false));
+		}
+		else
+		{
+			battleint->activeStack(battleID, gameState().getBattle(battleID)->battleGetStackByID(gameState().getBattle(battleID)->activeStack, false));
+		}
 	}
 	else
 	{
