@@ -48,6 +48,10 @@ if(ENABLE_MMAI)
 	add_subdirectory(MMAI)
 endif()
 
+if(ENABLE_RLBATTLE_AI)
+	add_subdirectory(RLBattleAI)
+endif()
+
 # Adventure AI's
 add_subdirectory(EmptyAI)
 
