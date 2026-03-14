@@ -17,6 +17,7 @@
 #include "lib/CStack.h"
 #include "lib/battle/BattleAction.h"
 #include "lib/battle/BattleInfo.h"
+#include "lib/bonuses/BonusSelector.h"
 #include "lib/battle/BattleLayout.h"
 #include "lib/battle/CPlayerBattleCallback.h"
 #include "lib/network/NetworkHandler.h"
@@ -133,6 +134,61 @@ void CRLBattleAI::activeStack(const BattleID & battleID, const CStack * stack)
 	BattleSideArray<const CGHeroInstance*>heroes{hero1, hero2};
 
 	pack.info = BattleInfo::setupBattle(const_cast<IGameInfoCallback*>(env->game()), tile, terrain, battlefieldType, armies, heroes, layout, town);
+	
+	// Debug: Print BattleInfo contents in serialization order
+	if (pack.info) {
+		print("BattleInfo serialization contents:");
+		print("  battleID: " + std::to_string(pack.info->battleID.getNum()));
+		
+		// sides array - using public getSide methods
+		const auto& attackerSide = pack.info->getSide(BattleSide::ATTACKER);
+		const auto& defenderSide = pack.info->getSide(BattleSide::DEFENDER);
+		
+		print("  sides[0] (attacker):");
+		print("    color: " + std::to_string(static_cast<int>(attackerSide.color)));
+		print("    heroID: " + ObjectInstanceID::encode(attackerSide.heroID.getNum()));
+		print("    armyObjectID: " + ObjectInstanceID::encode(attackerSide.armyObjectID.getNum()));
+		print("    castSpellsCount: " + std::to_string(attackerSide.castSpellsCount));
+		print("    usedSpellsHistory size: " + std::to_string(attackerSide.usedSpellsHistory.size()));
+		print("    enchanterCounter: " + std::to_string(attackerSide.enchanterCounter));
+		print("    initialMana: " + std::to_string(attackerSide.initialMana));
+		print("    additionalMana: " + std::to_string(attackerSide.additionalMana));
+		
+		print("  sides[1] (defender):");
+		print("    color: " + std::to_string(static_cast<int>(defenderSide.color)));
+		print("    heroID: " + ObjectInstanceID::encode(defenderSide.heroID.getNum()));
+		print("    armyObjectID: " + ObjectInstanceID::encode(defenderSide.armyObjectID.getNum()));
+		print("    castSpellsCount: " + std::to_string(defenderSide.castSpellsCount));
+		print("    usedSpellsHistory size: " + std::to_string(defenderSide.usedSpellsHistory.size()));
+		print("    enchanterCounter: " + std::to_string(defenderSide.enchanterCounter));
+		print("    initialMana: " + std::to_string(defenderSide.initialMana));
+		print("    additionalMana: " + std::to_string(defenderSide.additionalMana));
+		
+		print("  round: " + std::to_string(pack.info->round));
+		print("  activeStack: " + std::to_string(pack.info->activeStack));
+		print("  townID: " + ObjectInstanceID::encode(pack.info->townID.getNum()));
+		print("  tile: " + pack.info->tile.toString());
+		print("  stacks count: " + std::to_string(pack.info->stacks.size()));
+		print("  obstacles count: " + std::to_string(pack.info->obstacles.size()));
+		
+		// SiegeInfo
+		print("  siegeInfo:");
+		print("    wallState size: " + std::to_string(pack.info->si.wallState.size()));
+		print("    gateState: " + std::to_string(static_cast<int>(pack.info->si.gateState)));
+		
+		print("  battlefieldType: " + std::to_string(static_cast<int>(pack.info->battlefieldType)));
+		print("  terrainType: " + std::to_string(static_cast<int>(pack.info->terrainType)));
+		print("  tacticsSide: " + std::to_string(static_cast<int>(pack.info->tacticsSide)));
+		print("  tacticDistance: " + std::to_string(pack.info->tacticDistance));
+		
+		// CBonusSystemNode fields (basic info)
+		print("  CBonusSystemNode:");
+		auto allBonuses = pack.info->getAllBonuses(Selector::all);
+		print("    bonuses count: " + std::to_string(allBonuses ? allBonuses->size() : 0));
+		
+		print("  replayAllowed: " + std::string(pack.info->replayAllowed ? "true" : "false"));
+	}
+	
 	logicConnection->sendPack(pack);
 
 	{
@@ -231,5 +287,5 @@ void CRLBattleAI::onDisconnected(const std::shared_ptr<INetworkConnection> &, co
 
 void CRLBattleAI::print(const std::string &text) const
 {
-	logAi->trace("CRLBattleAI  [%p]: %s", this, text);
+	logAi->info("CRLBattleAI  [%p]: %s", this, text);
 }
