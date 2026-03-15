@@ -220,23 +220,22 @@ class BinaryDeserializer:
 
     def load_object(self, cls: type) -> 'Serializeable':
         """Load a serializeable object."""
-        # Check if this is a polymorphic type (has a type ID)
-        if hasattr(cls, '__registry__'):
-            # Load null check
-            is_null = self.load_bool()
-            if is_null:
-                return None
+        # Load null check
+        is_null = self.load_bool()
+        if is_null:
+            return None
 
-            # Load pointer ID
-            pointer_id = self.load_integer()
+        # Load pointer ID
+        pointer_id = self.load_integer()
 
-            # Check if we've already loaded this pointer
-            if pointer_id in self.loaded_pointers:
-                return self.loaded_pointers[pointer_id]
+        # Check if we've already loaded this pointer
+        if pointer_id in self.loaded_pointers:
+            return self.loaded_pointers[pointer_id]
 
-            # Load type ID
-            type_id = self.load_integer()
+        # Load type ID
+        type_id = self.load_integer()
 
+        if cls in cls.__registry__.values():
             # Get the actual class from registry
             actual_class = cls.__registry__.get(type_id)
             if actual_class is None:
@@ -250,13 +249,16 @@ class BinaryDeserializer:
 
             # Deserialize the object
             instance.serialize(self)
-
-            return instance
         else:
             # Simple object without polymorphism
             instance = cls()
+
+            # Store in loaded pointers
+            self.loaded_pointers[pointer_id] = instance
+
             instance.serialize(self)
-            return instance
+
+        return instance
 
 
 class Serializeable:

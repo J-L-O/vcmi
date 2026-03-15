@@ -195,14 +195,47 @@ class Bonus(Serializeable):
     source: int = 0
     sid: int = 0
     additional_info: List[int] = field(default_factory=list)
+    turnsRemain: int = 0
+    targetSourceType: int = 0
 
     def serialize(self, deserializer: BinaryDeserializer):
-        # Simplified bonus deserialization - actual VCMI has more complex structure
-        self.type = deserializer.load_integer()
-        self.subtype = deserializer.load_integer()
-        self.val = deserializer.load_integer()
-        self.val_type = deserializer.load_integer()
-        self.duration = deserializer.load_integer()
+        # Complete bonus deserialization matching C++ implementation
+        self.duration = deserializer.load_integer()  # BonusDuration::Type (2 bytes, but loaded as integer)
+        self.type = deserializer.load_integer()      # BonusType (2 bytes, but loaded as integer)
+        self.subtype = deserializer.load_integer()   # BonusSubtypeID
+        self.source = deserializer.load_integer()    # BonusSource (1 byte, but loaded as integer)
+        self.val = deserializer.load_integer()       # si32 (4 bytes)
+        self.sid = deserializer.load_integer()       # BonusSourceID
+        
+        # Skip description (MetaString) - complex type not fully supported in Python
+        # For now, we'll skip this field to maintain proper alignment
+        desc_length = deserializer.load_integer()
+        if desc_length > 0:
+            deserializer.read(desc_length)  # Skip the string data
+        
+        # Skip customIconPath (ImagePath) - conditional field, skip for now
+        # Skip hidden (bool) - conditional field, skip for now
+        
+        # Load additional_info (CAddInfo - vector of si32)
+        self.additional_info = deserializer.load_vector(int)
+        
+        self.turnsRemain = deserializer.load_integer()  # si16 (2 bytes, but loaded as integer)
+        self.val_type = deserializer.load_integer()      # BonusValueType (1 byte, but loaded as integer)
+        
+        # Skip stacking (std::string) - skip for now
+        stacking_length = deserializer.load_integer()
+        if stacking_length > 0:
+            deserializer.read(stacking_length)  # Skip the string data
+        
+        # Skip effectRange (BonusLimitEffect) - 1 byte, skip for now
+        deserializer.load_integer()
+        
+        # Skip limiter (TLimiterPtr) - complex pointer type, skip for now
+        # Skip propagator (TPropagatorPtr) - complex pointer type, skip for now
+        # Skip updater (TUpdaterPtr) - complex pointer type, skip for now
+        # Skip propagationUpdater (TUpdaterPtr) - complex pointer type, skip for now
+        
+        self.targetSourceType = deserializer.load_integer()  # BonusSource (1 byte, but loaded as integer)
 
 
 @dataclass
@@ -215,8 +248,8 @@ class BonusList(Serializeable):
         length = deserializer.load_integer()
         self.bonuses = []
         for _ in range(length):
-            bonus = Bonus()
-            bonus.serialize(deserializer)
+            bonus = deserializer.load_object(Bonus)
+            # bonus.serialize(deserializer)
             self.bonuses.append(bonus)
 
 
@@ -528,6 +561,12 @@ class BattleInfo(Serializeable):
             self.replay_allowed = deserializer.load_bool()
             logger.debug(f"After replay_allowed: position {deserializer.position}")
             logger.debug(f"BattleInfo deserialization completed at position {deserializer.position}")
+
+            # Debug: Show remaining bytes
+            remaining_bytes = len(deserializer.data) - deserializer.position
+            if remaining_bytes > 0:
+                remaining_data = deserializer.data[deserializer.position:]
+                logger.warning(f"Remaining {remaining_bytes} bytes after BattleInfo deserialization: {remaining_data.hex()}")
 
         except Exception as e:
             logger.error(f"Error during BattleInfo deserialization at position {deserializer.position}: {e}")
