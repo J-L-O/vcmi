@@ -19,8 +19,11 @@ T = TypeVar('T')
 
 
 class SerializationVersion(IntEnum):
-    """Serialization version flags"""
-    CURRENT = 8
+    """Serialization version flags - simplified subset of C++ ESerializationVersion"""
+    CURRENT = 873 + 15  # Corresponds to C++ CURRENT = HOTA_MAP_STACK_COUNT
+    RELEASE_160 = 873
+    CUSTOM_BONUS_ICONS = RELEASE_160 + 10  # 883
+    BONUS_HIDDEN = RELEASE_160 + 15  # 888
     COMPACT_INTEGER_SERIALIZATION = 5
     COMPACT_STRING_SERIALIZATION = 5
 

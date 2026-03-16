@@ -8,8 +8,61 @@ used in network communication.
 from typing import List, Optional, Set, Dict
 from dataclasses import dataclass, field
 from enum import IntEnum
-from serializer import Serializeable, BinaryDeserializer, pack
+from serializer import Serializeable, BinaryDeserializer, pack, SerializationVersion
 import logging
+
+
+# ============================================================================
+# Resource Path Types
+# ============================================================================
+
+class EResType(IntEnum):
+    """Resource type enum matching C++ EResType"""
+    TEXT = 0
+    JSON = 1
+    ANIMATION = 2
+    MASK = 3
+    CAMPAIGN = 4
+    MAP = 5
+    BMP_FONT = 6
+    TTF_FONT = 7
+    IMAGE = 8
+    VIDEO = 9
+    VIDEO_LOW_QUALITY = 10
+    SOUND = 11
+    ARCHIVE_VID = 12
+    ARCHIVE_ZIP = 13
+    ARCHIVE_SND = 14
+    ARCHIVE_LOD = 15
+    ARCHIVE_PAK = 16
+    PALETTE = 17
+    SAVEGAME = 18
+    DIRECTORY = 19
+    ERM = 20
+    ERT = 21
+    ERS = 22
+    LUA = 23
+    AI_MODEL = 24
+    OTHER = 25
+    UNDEFINED = 26
+
+
+class ImagePath(Serializeable):
+    """Image resource path matching C++ ImagePath (ResourcePathTempl<EResType::IMAGE>)"""
+
+    def __init__(self):
+        self.type: int = EResType.IMAGE
+        self.name: str = ""
+        self.originalName: str = ""
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize ImagePath from binary format"""
+        self.type = deserializer.load_integer()  # EResType
+        self.name = deserializer.load_string()   # uppercase name without extension
+        self.originalName = deserializer.load_string()  # original case name
+
+    def __repr__(self):
+        return f"ImagePath({self.name})"
 
 logger = logging.getLogger(__name__)
 
@@ -588,9 +641,13 @@ class Bonus(Serializeable):
     source: int = 0
     sid: object = None  # Will be one of: BonusCustomSource, SpellID, CreatureID, ArtifactID, CampaignScenarioID, SecondarySkill, HeroTypeID, Obj, ObjectInstanceID, BuildingTypeUniqueID, BattleField, ArtifactInstanceID
     description: MetaString = field(default_factory=MetaString)
+    custom_icon_path: ImagePath = field(default_factory=ImagePath)
+    hidden: bool = False
     additional_info: List[int] = field(default_factory=list)
     turnsRemain: int = 0
-    targetSourceType: int = 0
+    stacking: str = field(default_factory=str)
+    effect_range: int = 0
+    target_source_type: int = 0
 
     def serialize(self, deserializer: BinaryDeserializer):
         # Complete bonus deserialization matching C++ implementation
@@ -636,29 +693,33 @@ class Bonus(Serializeable):
         self.description = MetaString()
         self.description.serialize(deserializer)
 
-        # Skip customIconPath (ImagePath) - conditional field, skip for now
-        # Skip hidden (bool) - conditional field, skip for now
+        # Load customIconPath (ImagePath) - conditional field based on version
+        if deserializer.version >= SerializationVersion.CUSTOM_BONUS_ICONS:
+            self.custom_icon_path = ImagePath()
+            self.custom_icon_path.serialize(deserializer)
+        else:
+            self.custom_icon_path = ImagePath()  # Default empty ImagePath
+
+        # Load hidden (bool) - conditional field based on version
+        if deserializer.version >= SerializationVersion.BONUS_HIDDEN:
+            self.hidden = deserializer.load_bool()
+        else:
+            self.hidden = False
 
         # Load additional_info (CAddInfo - vector of si32)
         self.additional_info = deserializer.load_vector(int)
         
         self.turnsRemain = deserializer.load_integer()  # si16 (2 bytes, but loaded as integer)
         self.val_type = deserializer.load_integer()      # BonusValueType (1 byte, but loaded as integer)
-        
-        # Skip stacking (std::string) - skip for now
-        stacking_length = deserializer.load_integer()
-        if stacking_length > 0:
-            deserializer.read(stacking_length)  # Skip the string data
-        
-        # Skip effectRange (BonusLimitEffect) - 1 byte, skip for now
-        deserializer.load_integer()
+        self.stacking = deserializer.load_string()  # String
+        self.effect_range = deserializer.load_integer()  # BonusLimitEffect (1 byte, but loaded as integer)
         
         # Skip limiter (TLimiterPtr) - complex pointer type, skip for now
         # Skip propagator (TPropagatorPtr) - complex pointer type, skip for now
         # Skip updater (TUpdaterPtr) - complex pointer type, skip for now
         # Skip propagationUpdater (TUpdaterPtr) - complex pointer type, skip for now
         
-        self.targetSourceType = deserializer.load_integer()  # BonusSource (1 byte, but loaded as integer)
+        self.target_source_type = deserializer.load_integer()  # BonusSource (1 byte, but loaded as integer)
 
 
 @dataclass
