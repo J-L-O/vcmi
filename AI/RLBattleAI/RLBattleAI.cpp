@@ -183,8 +183,24 @@ void CRLBattleAI::activeStack(const BattleID & battleID, const CStack * stack)
 		
 		// CBonusSystemNode fields (basic info)
 		print("  CBonusSystemNode:");
-		auto allBonuses = pack.info->getAllBonuses(Selector::all);
-		print("    bonuses count: " + std::to_string(allBonuses ? allBonuses->size() : 0));
+		auto& bonuses = pack.info->getExportedBonusList();
+		print("    exported bonuses count: " + std::to_string(bonuses.size()));
+
+		// Log each bonus for debugging
+		for (const auto& bonus : bonuses)
+		{
+			print("    Bonus:");
+			print("      duration: " + std::to_string(static_cast<int>(bonus->duration)));
+			print("      type: " + std::to_string(static_cast<int>(bonus->type)));
+			print("      subtype: " + bonus->subtype.toString());
+			print("      source: " + std::to_string(static_cast<int>(bonus->source)));
+			print("      val: " + std::to_string(bonus->val));
+			print("      sid: " + bonus->sid.toString());
+			print("      valType: " + std::to_string(static_cast<int>(bonus->valType)));
+			print("      turnsRemain: " + std::to_string(bonus->turnsRemain));
+			print("      effectRange: " + std::to_string(static_cast<int>(bonus->effectRange)));
+			print("      targetSourceType: " + std::to_string(static_cast<int>(bonus->targetSourceType)));
+		}
 		
 		print("  replayAllowed: " + std::string(pack.info->replayAllowed ? "true" : "false"));
 	}

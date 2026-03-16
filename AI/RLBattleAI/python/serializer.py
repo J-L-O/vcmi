@@ -166,7 +166,7 @@ class BinaryDeserializer:
                 result.append(self.load_vector(element_type.__args__[0]))
             else:
                 # Assume it's a serializeable class
-                result.append(self.load_object(element_type))
+                result.append(self.load_pointer(element_type))
 
         return result
 
@@ -182,7 +182,7 @@ class BinaryDeserializer:
                 # Nested set of lists
                 result.add(tuple(self.load_vector(element_type.__args__[0])))
             else:
-                result.add(self.load_object(element_type))
+                result.add(self.load_pointer(element_type))
 
         return result
 
@@ -209,16 +209,36 @@ class BinaryDeserializer:
         elif value_type == float:
             return self.load_float64()
         else:
-            return self.load_object(value_type)
+            return self.load_pointer(value_type)
 
-    def load_optional(self, inner_type: type) -> Optional:
-        """Load an optional value."""
-        has_value = self.load_bool()
-        if has_value:
-            return self._load_typed_value(inner_type)
-        return None
+    def load_variant(self, variant_classes: List[type]) -> object:
+        """
+        Load a variant value that can be one of several types.
 
-    def load_object(self, cls: type) -> 'Serializeable':
+        The format is:
+        1. Index (int32) indicating which variant type is active
+        2. The value of the active variant type
+
+        Args:
+            variant_classes: List of possible class types for this variant
+
+        Returns:
+            An instance of the appropriate class with the loaded value
+        """
+        # Load which variant is active
+        type_index = self.load_integer()
+
+        if type_index < 0 or type_index >= len(variant_classes):
+            raise ValueError(f"Invalid variant type index: {type_index} (valid range: 0-{len(variant_classes)-1})")
+
+        # Load the integer value
+        int_value = self.load_integer()
+
+        # Create instance of the appropriate class
+        value_class = variant_classes[type_index]
+        return value_class(int_value)
+
+    def load_pointer(self, cls: type) -> 'Serializeable':
         """Load a serializeable object."""
         # Load null check
         is_null = self.load_bool()

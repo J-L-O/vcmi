@@ -25,29 +25,27 @@ class BattleSide(IntEnum):
     DEFENDER = 1
 
 
-# Use simple integer wrappers instead of strict enums for IDs to handle unexpected values
-class PlayerColor:
-    """Player colors"""
-    NEUTRAL = 255
-    CANNOT_DETERMINE = 254
+# ============================================================================
+# Identifier Classes for Variant Types
+# ============================================================================
 
-    def __init__(self, value: int = 255):
+class BonusCustomSubtype:
+    """Bonus custom subtype identifier"""
+    def __init__(self, value: int = 0):
         self.value = value
 
     def to_int(self) -> int:
         return self.value
 
-    def __eq__(self, other):
-        if isinstance(other, PlayerColor):
-            return self.value == other.value
-        return False
+    def to_string(self) -> str:
+        return f"BonusCustomSubtype({self.value})"
 
     def __repr__(self):
-        return f"PlayerColor({self.value})"
+        return self.to_string()
 
 
 class SpellID:
-    """Spell identifiers"""
+    """Spell identifier"""
     NONE = -1
 
     def __init__(self, value: int = -1):
@@ -56,9 +54,45 @@ class SpellID:
     def to_int(self) -> int:
         return self.value
 
+    def to_string(self) -> str:
+        return f"SpellID({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class CreatureID:
+    """Creature identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"CreatureID({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class PrimarySkill:
+    """Primary skill identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"PrimarySkill({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
 
 class TerrainId:
-    """Terrain type identifiers - flexible wrapper to handle any value"""
+    """Terrain type identifier - flexible wrapper to handle any value"""
     # Common terrain types (for reference)
     DIRT = 0
     GRASS = 1
@@ -72,36 +106,152 @@ class TerrainId:
     def __init__(self, value: int = 0):
         self.value = value
 
+    def to_int(self) -> int:
+        return self.value
+
     def __int__(self):
         return self.value
 
-    def __repr__(self):
+    def to_string(self) -> str:
         return f"TerrainId({self.value})"
 
-
-class EWallState(IntEnum):
-    """States of siege wall parts"""
-    INTACT = 0
-    DAMAGED = 1
-    DESTROYED = 2
+    def __repr__(self):
+        return self.to_string()
 
 
-class EGateState(IntEnum):
-    """States of siege gate"""
-    CLOSED = 0
-    OPEN = 1
-    DESTROYED = 2
+class GameResID:
+    """Game resource identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"GameResID({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
 
 
-class BattleFieldType(IntEnum):
-    """Battlefield types"""
-    NONE = 0
-    SANDBOX = 1
+class SpellSchool:
+    """Spell school identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"SpellSchool({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
 
 
-class SlotID(IntEnum):
-    """Army slot identifiers"""
-    COMMANDER_SLOT_PLACEHOLDER = -2
+class BonusTypeID:
+    """Bonus type identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"BonusTypeID({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class BonusCustomSource:
+    """Bonus custom source identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"BonusCustomSource({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class ArtifactID:
+    """Artifact identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"ArtifactID({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class CampaignScenarioID:
+    """Campaign scenario identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"CampaignScenarioID({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class SecondarySkill:
+    """Secondary skill identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"SecondarySkill({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class HeroTypeID:
+    """Hero type identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"HeroTypeID({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class Obj:
+    """Object identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"Obj({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
 
 
 class ObjectInstanceID:
@@ -119,8 +269,257 @@ class ObjectInstanceID:
             return self.value == other.value
         return False
 
-    def __repr__(self):
+    def to_string(self) -> str:
         return f"ObjectInstanceID({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class BuildingTypeUniqueID:
+    """Building type unique identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"BuildingTypeUniqueID({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class BattleField:
+    """Battle field identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"BattleField({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class ArtifactInstanceID:
+    """Artifact instance identifier"""
+    def __init__(self, value: int = 0):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"ArtifactInstanceID({self.value})"
+
+    def __repr__(self):
+        return self.to_string()
+
+
+# ============================================================================
+# Core Type Enums (Module-level exports)
+# ============================================================================
+
+class EMessage(IntEnum):
+    """MetaString message types"""
+    APPEND_RAW_STRING = 0
+    APPEND_LOCAL_STRING = 1
+    APPEND_TEXTID_STRING = 2
+    APPEND_NUMBER = 3
+    REPLACE_RAW_STRING = 4
+    REPLACE_LOCAL_STRING = 5
+    REPLACE_TEXTID_STRING = 6
+    REPLACE_NUMBER = 7
+    REPLACE_POSITIVE_NUMBER = 8
+    APPEND_EOL = 9
+
+
+class EMetaText(IntEnum):
+    """MetaString text types for localization"""
+    GENERAL_TXT = 0
+    ARRAY_TXT = 1
+    ADVOB_TXT = 2
+    JK_TXT = 3
+
+
+# ============================================================================
+# Player Color Class
+# ============================================================================
+
+class PlayerColor:
+    """Player colors"""
+    NEUTRAL = 255
+    CANNOT_DETERMINE = 254
+
+    def __init__(self, value: int = 255):
+        self.value = value
+
+    def to_int(self) -> int:
+        return self.value
+
+    def to_string(self) -> str:
+        return f"PlayerColor({self.value})"
+
+    def __eq__(self, other):
+        if isinstance(other, PlayerColor):
+            return self.value == other.value
+        return False
+
+    def __repr__(self):
+        return self.to_string()
+
+
+class EWallState(IntEnum):
+    """States of siege wall parts"""
+    INTACT = 0
+    DAMAGED = 1
+    DESTROYED = 2
+
+
+class EGateState(IntEnum):
+    """States of siege gate"""
+    CLOSED = 0
+    OPEN = 1
+    DESTROYED = 2
+
+
+# ============================================================================
+# MetaString Implementation
+# ============================================================================
+
+@dataclass
+class MetaString(Serializeable):
+    """String formatting class that supports transfer over network with localization"""
+
+    exact_strings: List[str] = field(default_factory=list)
+    local_strings: List[tuple] = field(default_factory=list)  # (EMetaText, ui32)
+    strings_text_id: List[str] = field(default_factory=list)
+    message: List[int] = field(default_factory=list)  # EMessage
+    numbers: List[int] = field(default_factory=list)
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize MetaString from binary format"""
+        # Serialize exact strings (vector of strings)
+        exact_strings_count = deserializer.load_integer()
+        self.exact_strings = [deserializer.load_string() for _ in range(exact_strings_count)]
+
+        # Serialize local strings (vector of pairs<EMetaText, ui32>)
+        local_strings_count = deserializer.load_integer()
+        self.local_strings = []
+        for _ in range(local_strings_count):
+            meta_text_int = deserializer.load_integer()
+            ui32_value = deserializer.load_integer()
+            self.local_strings.append((EMetaText(meta_text_int), ui32_value))
+
+        # Serialize strings text ID (vector of strings)
+        strings_text_id_count = deserializer.load_integer()
+        self.strings_text_id = [deserializer.load_string() for _ in range(strings_text_id_count)]
+
+        # Serialize messages (vector of EMessage)
+        message_count = deserializer.load_integer()
+        self.message = [deserializer.load_integer() for _ in range(message_count)]
+
+        # Serialize numbers (vector of int64_t)
+        numbers_count = deserializer.load_integer()
+        self.numbers = [deserializer.load_integer() for _ in range(numbers_count)]
+
+    def to_string(self) -> str:
+        """Convert MetaString to user-readable string"""
+        result = []
+        exact_index = 0
+        local_index = 0
+        text_id_index = 0
+        number_index = 0
+
+        for msg in self.message:
+            if msg == EMessage.APPEND_RAW_STRING:
+                if exact_index < len(self.exact_strings):
+                    result.append(self.exact_strings[exact_index])
+                    exact_index += 1
+            elif msg == EMessage.APPEND_LOCAL_STRING:
+                if local_index < len(self.local_strings):
+                    meta_text, ui32_value = self.local_strings[local_index]
+                    # Simple translation - would need to call text library
+                    result.append(f"<localized:{meta_text.value}:{ui32_value}>")
+                    local_index += 1
+            elif msg == EMessage.APPEND_TEXTID_STRING:
+                if text_id_index < len(self.strings_text_id):
+                    result.append(self.strings_text_id[text_id_index])
+                    text_id_index += 1
+            elif msg == EMessage.APPEND_NUMBER:
+                if number_index < len(self.numbers):
+                    result.append(str(self.numbers[number_index]))
+                    number_index += 1
+            elif msg == EMessage.APPEND_EOL:
+                result.append('\n')
+            elif msg == EMessage.REPLACE_RAW_STRING:
+                # Replace first '%s' with exact string
+                if exact_index < len(self.exact_strings):
+                    replacement = self.exact_strings[exact_index]
+                    for i in range(len(result)):
+                        if '%s' in result[i]:
+                            result[i] = result[i].replace('%s', replacement, 1)
+                    exact_index += 1
+            elif msg == EMessage.REPLACE_LOCAL_STRING:
+                # Replace first '%s' with localized string
+                if local_index < len(self.local_strings):
+                    meta_text, ui32_value = self.local_strings[local_index]
+                    replacement = f"<localized:{meta_text.value}:{ui32_value}>"
+                    for i in range(len(result)):
+                        if '%s' in result[i]:
+                            result[i] = result[i].replace('%s', replacement, 1)
+                    local_index += 1
+            elif msg == EMessage.REPLACE_TEXTID_STRING:
+                # Replace first '%s' with text ID
+                if text_id_index < len(self.strings_text_id):
+                    replacement = self.strings_text_id[text_id_index]
+                    for i in range(len(result)):
+                        if '%s' in result[i]:
+                            result[i] = result[i].replace('%s', replacement, 1)
+                    text_id_index += 1
+            elif msg == EMessage.REPLACE_NUMBER:
+                # Replace first '%d' with number
+                if number_index < len(self.numbers):
+                    replacement = str(self.numbers[number_index])
+                    for i in range(len(result)):
+                        if '%d' in result[i]:
+                            result[i] = result[i].replace('%d', replacement, 1)
+                            break  # Only replace the first occurrence
+                    number_index += 1
+            elif msg == EMessage.REPLACE_POSITIVE_NUMBER:
+                # Replace first '%+d' with number (with + prefix for positive values)
+                if number_index < len(self.numbers):
+                    value = self.numbers[number_index]
+                    replacement = ('+' if value > 0 else '') + str(value)
+                    for i in range(len(result)):
+                        if '%+d' in result[i]:
+                            result[i] = result[i].replace('%+d', replacement, 1)
+                    number_index += 1
+
+        return ''.join(result)
+
+    def empty(self) -> bool:
+        """Returns true if current string is empty"""
+        return len(self.message) == 0 and len(self.exact_strings) == 0
+
+    def __repr__(self):
+        return f"MetaString({self.to_string()})"
+
+
+class BattleFieldType(IntEnum):
+    """Battlefield types"""
+    NONE = 0
+    SANDBOX = 1
+
+
+class SlotID(IntEnum):
+    """Army slot identifiers"""
+    COMMANDER_SLOT_PLACEHOLDER = -2
 
 
 class BattleID:
@@ -136,14 +535,8 @@ class BattleID:
             return self.value == other.value
         return False
 
-
-class CreatureID:
-    """Creature identifier wrapper"""
-    def __init__(self, value: int = 0):
-        self.value = value
-
-    def to_int(self) -> int:
-        return self.value
+    def __repr__(self):
+        return f"BattleID({self.value})"
 
 
 # ============================================================================
@@ -188,12 +581,13 @@ class BattleHexArray:
 class Bonus(Serializeable):
     """Bonus effect on an object"""
     type: int = 0
-    subtype: int = 0
+    subtype: object = None  # Will be one of: BonusCustomSubtype, SpellID, CreatureID, PrimarySkill, TerrainId, GameResID, SpellSchool, BonusTypeID
     val: int = 0
     val_type: int = 0
     duration: int = 0
     source: int = 0
-    sid: int = 0
+    sid: object = None  # Will be one of: BonusCustomSource, SpellID, CreatureID, ArtifactID, CampaignScenarioID, SecondarySkill, HeroTypeID, Obj, ObjectInstanceID, BuildingTypeUniqueID, BattleField, ArtifactInstanceID
+    description: MetaString = field(default_factory=MetaString)
     additional_info: List[int] = field(default_factory=list)
     turnsRemain: int = 0
     targetSourceType: int = 0
@@ -202,20 +596,49 @@ class Bonus(Serializeable):
         # Complete bonus deserialization matching C++ implementation
         self.duration = deserializer.load_integer()  # BonusDuration::Type (2 bytes, but loaded as integer)
         self.type = deserializer.load_integer()      # BonusType (2 bytes, but loaded as integer)
-        self.subtype = deserializer.load_integer()   # BonusSubtypeID
+
+        # Load BonusSubtypeID as VariantIdentifier
+        # VariantIdentifier<BonusCustomSubtype, SpellID, CreatureID, PrimarySkill, TerrainId, GameResID, SpellSchool, BonusTypeID>
+        subtype_variant_types = [
+            BonusCustomSubtype,
+            SpellID,
+            CreatureID,
+            PrimarySkill,
+            TerrainId,
+            GameResID,
+            SpellSchool,
+            BonusTypeID
+        ]
+        self.subtype = deserializer.load_variant(subtype_variant_types)
+
         self.source = deserializer.load_integer()    # BonusSource (1 byte, but loaded as integer)
         self.val = deserializer.load_integer()       # si32 (4 bytes)
-        self.sid = deserializer.load_integer()       # BonusSourceID
-        
-        # Skip description (MetaString) - complex type not fully supported in Python
-        # For now, we'll skip this field to maintain proper alignment
-        desc_length = deserializer.load_integer()
-        if desc_length > 0:
-            deserializer.read(desc_length)  # Skip the string data
-        
+
+        # Load BonusSourceID as VariantIdentifier
+        # VariantIdentifier<BonusCustomSource, SpellID, CreatureID, ArtifactID, CampaignScenarioID, SecondarySkill, HeroTypeID, Obj, ObjectInstanceID, BuildingTypeUniqueID, BattleField, ArtifactInstanceID>
+        source_variant_types = [
+            BonusCustomSource,
+            SpellID,
+            CreatureID,
+            ArtifactID,
+            CampaignScenarioID,
+            SecondarySkill,
+            HeroTypeID,
+            Obj,
+            ObjectInstanceID,
+            BuildingTypeUniqueID,
+            BattleField,
+            ArtifactInstanceID
+        ]
+        self.sid = deserializer.load_variant(source_variant_types)
+
+        # Load description (MetaString) - complex string with localization support
+        self.description = MetaString()
+        self.description.serialize(deserializer)
+
         # Skip customIconPath (ImagePath) - conditional field, skip for now
         # Skip hidden (bool) - conditional field, skip for now
-        
+
         # Load additional_info (CAddInfo - vector of si32)
         self.additional_info = deserializer.load_vector(int)
         
@@ -248,7 +671,7 @@ class BonusList(Serializeable):
         length = deserializer.load_integer()
         self.bonuses = []
         for _ in range(length):
-            bonus = deserializer.load_object(Bonus)
+            bonus = deserializer.load_pointer(Bonus)
             # bonus.serialize(deserializer)
             self.bonuses.append(bonus)
 
@@ -600,7 +1023,7 @@ class BattleStart(CPackForClient):
 
         # Load BattleInfo (polymorphic unique_ptr)
         # Use load_object which properly handles pointer deserialization
-        self.info = deserializer.load_object(BattleInfo)
+        self.info = deserializer.load_pointer(BattleInfo)
         logger.debug(f"After BattleInfo.deserialize: position {deserializer.position}")
         logger.debug(f"BattleStart.serialize() completed at position {deserializer.position}")
 
