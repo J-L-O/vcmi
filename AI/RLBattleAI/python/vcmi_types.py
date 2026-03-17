@@ -68,6 +68,331 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# Limiter Types
+# ============================================================================
+
+@Serializeable.register_type(48)
+class Limiter(Serializeable):
+    """Base class for all limiters"""
+
+    def __init__(self):
+        pass
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Base limiter serialization - to be overridden by subclasses"""
+        pass
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}()"
+
+
+@Serializeable.register_type(49)
+class AnyOfLimiter(Limiter):
+    """Requires at least one of the child limiters to be true"""
+
+    def __init__(self):
+        super().__init__()
+        self.limiters = []
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize AnyOfLimiter"""
+        # Load vector of child limiters
+        self.limiters = deserializer.load_vector(Limiter)
+
+    def __repr__(self):
+        return f"AnyOfLimiter({len(self.limiters)} children)"
+
+
+@Serializeable.register_type(50)
+class NoneOfLimiter(Limiter):
+    """Requires none of the child limiters to be true"""
+
+    def __init__(self):
+        super().__init__()
+        self.limiters = []
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize NoneOfLimiter"""
+        # Load vector of child limiters
+        self.limiters = deserializer.load_vector(Limiter)
+
+    def __repr__(self):
+        return f"NoneOfLimiter({len(self.limiters)} children)"
+
+
+@Serializeable.register_type(51)
+class OppositeSideLimiter(Limiter):
+    """Applies only to creatures of enemy army during combat"""
+
+    def __init__(self):
+        super().__init__()
+        # Owner field is only present in old versions
+        self.owner = None
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize OppositeSideLimiter"""
+        # Check if owner field is present in this version
+        if deserializer.version < SerializationVersion.OPPOSITE_SIDE_LIMITER_OWNER:
+            # Load owner field (PlayerColor) for old versions
+            self.owner = deserializer.load_integer()
+
+    def __repr__(self):
+        if self.owner is not None:
+            return f"OppositeSideLimiter(owner={self.owner})"
+        return f"OppositeSideLimiter()"
+
+
+@Serializeable.register_type(61)
+class AllOfLimiter(Limiter):
+    """Requires all of the child limiters to be true"""
+
+    def __init__(self):
+        super().__init__()
+        self.limiters = []
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize AllOfLimiter"""
+        # Load vector of child limiters
+        self.limiters = deserializer.load_vector(Limiter)
+
+    def __repr__(self):
+        return f"AllOfLimiter({len(self.limiters)} children)"
+
+
+@Serializeable.register_type(62)
+class CCreatureTypeLimiter(Limiter):
+    """Applies only to stacks of given creature type (and optionally its upgrades)"""
+
+    def __init__(self):
+        super().__init__()
+        self.creatureID = 0
+        self.includeUpgrades = False
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize CreatureTypeLimiter"""
+        # Load creature ID
+        self.creatureID = deserializer.load_integer()
+        # Load includeUpgrades flag
+        self.includeUpgrades = deserializer.load_bool()
+
+    def __repr__(self):
+        return f"CCreatureTypeLimiter(creatureID={self.creatureID}, includeUpgrades={self.includeUpgrades})"
+
+
+@Serializeable.register_type(63)
+class HasAnotherBonusLimiter(Limiter):
+    """Applies only to nodes that have another bonus working"""
+
+    def __init__(self):
+        super().__init__()
+        self.type = 0
+        self.subtype = 0
+        self.source = 0
+        self.sid = 0
+        self.isSubtypeRelevant = False
+        self.isSourceRelevant = False
+        self.isSourceIDRelevant = False
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize HasAnotherBonusLimiter"""
+        # Load bonus type
+        self.type = deserializer.load_integer()
+        # Load bonus subtype
+        self.subtype = deserializer.load_integer()
+        # Load bonus source
+        self.source = deserializer.load_integer()
+        # Load bonus source ID
+        self.sid = deserializer.load_integer()
+        # Load relevance flags
+        self.isSubtypeRelevant = deserializer.load_bool()
+        self.isSourceRelevant = deserializer.load_bool()
+        self.isSourceIDRelevant = deserializer.load_bool()
+
+    def __repr__(self):
+        return f"HasAnotherBonusLimiter(type={self.type}, source={self.source})"
+
+
+TERRAIN_JSON_KEY_TO_INDEX = {
+    "dirt": 0,
+    "sand": 1,
+    "grass": 2,
+    "snow": 3,
+    "swamp": 4,
+    "rough": 5,
+    "subterra": 6,
+    "lava": 7,
+    "water": 8,
+    "rock": 9,
+}
+
+FACTION_JSON_KEY_TO_INDEX = {
+    "castle": 0,
+    "rampart": 1,
+    "tower": 2,
+    "inferno": 3,
+    "necropolis": 4,
+    "dungeon": 5,
+    "stronghold": 6,
+    "fortress": 7,
+    "conflux": 8,
+    "neutral": 9,
+    "random": -1,
+}
+
+
+def deserialize_terrain_id(deserializer: BinaryDeserializer) -> int:
+    """Deserialize a TerrainId from the binary stream.
+    
+    C++ TerrainId serializes as:
+    - "" (empty string) -> -1 (NONE)
+    - "native" -> -4 (NATIVE_TERRAIN)
+    - Otherwise, the JSON key (e.g., "dirt", "grass") -> index
+    """
+    terrain_str = deserializer.load_string()
+    
+    if terrain_str == "":
+        return -1  # NONE
+    elif terrain_str == "native":
+        return -4  # NATIVE_TERRAIN
+    else:
+        return TERRAIN_JSON_KEY_TO_INDEX.get(terrain_str, -1)
+
+
+def deserialize_faction_id(deserializer: BinaryDeserializer) -> int:
+    """Deserialize a FactionID from the binary stream.
+    
+    C++ FactionID serializes as a string (the JSON key like "castle", "rampart", etc.)
+    """
+    faction_str = deserializer.load_string()
+    return FACTION_JSON_KEY_TO_INDEX.get(faction_str, -1)
+
+
+@Serializeable.register_type(64)
+class TerrainLimiter(Limiter):
+    """Applies only to creatures that are on specified terrain"""
+
+    def __init__(self):
+        super().__init__()
+        self.terrainType = 0
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize TerrainLimiter"""
+        # Load terrain type (serialized as string in C++)
+        self.terrainType = deserialize_terrain_id(deserializer)
+
+    def __repr__(self):
+        return f"TerrainLimiter(terrainType={self.terrainType})"
+
+
+@Serializeable.register_type(65)
+class FactionLimiter(Limiter):
+    """Applies only to creatures of given faction"""
+
+    def __init__(self):
+        super().__init__()
+        self.faction = 0
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize FactionLimiter"""
+        # Load faction ID (serialized as string in C++)
+        self.faction = deserialize_faction_id(deserializer)
+
+    def __repr__(self):
+        return f"FactionLimiter(faction={self.faction})"
+
+
+@Serializeable.register_type(66)
+class CCreatureLevelLimiter(Limiter):
+    """Applies only to creatures of given level range"""
+
+    def __init__(self):
+        super().__init__()
+        self.minLevel = 0
+        self.maxLevel = 0
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize CreatureLevelLimiter"""
+        # Load min level
+        self.minLevel = deserializer.load_integer()
+        # Load max level
+        self.maxLevel = deserializer.load_integer()
+
+    def __repr__(self):
+        return f"CCreatureLevelLimiter(min={self.minLevel}, max={self.maxLevel})"
+
+
+@Serializeable.register_type(67)
+class CCreatureAlignmentLimiter(Limiter):
+    """Applies only to creatures of given alignment"""
+
+    def __init__(self):
+        super().__init__()
+        self.alignment = 0
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize CreatureAlignmentLimiter"""
+        # Load alignment
+        self.alignment = deserializer.load_integer()
+
+    def __repr__(self):
+        return f"CCreatureAlignmentLimiter(alignment={self.alignment})"
+
+
+@Serializeable.register_type(68)
+class RankRangeLimiter(Limiter):
+    """Applies to creatures with min <= Rank <= max"""
+
+    def __init__(self):
+        super().__init__()
+        self.minRank = 0
+        self.maxRank = 0
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize RankRangeLimiter"""
+        # Load min rank
+        self.minRank = deserializer.load_integer()
+        # Load max rank
+        self.maxRank = deserializer.load_integer()
+
+    def __repr__(self):
+        return f"RankRangeLimiter(min={self.minRank}, max={self.maxRank})"
+
+
+@Serializeable.register_type(69)
+class UnitOnHexLimiter(Limiter):
+    """Works only on selected hexes"""
+
+    def __init__(self):
+        super().__init__()
+        self.applicableHexes = []
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize UnitOnHexLimiter"""
+        # Load applicable hexes vector
+        self.applicableHexes = deserializer.load_vector(int)
+
+    def __repr__(self):
+        return f"UnitOnHexLimiter({len(self.applicableHexes)} hexes)"
+
+
+@Serializeable.register_type(55)
+class HasChargesLimiter(Limiter):
+    """Works with bonuses that consume charges"""
+
+    def __init__(self):
+        super().__init__()
+        self.chargeCost = 1
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize HasChargesLimiter"""
+        # Load charge cost
+        self.chargeCost = deserializer.load_integer()
+
+    def __repr__(self):
+        return f"HasChargesLimiter(chargeCost={self.chargeCost})"
+
+
+# ============================================================================
 # Core Type Enums
 # ============================================================================
 
@@ -647,6 +972,7 @@ class Bonus(Serializeable):
     turnsRemain: int = 0
     stacking: str = field(default_factory=str)
     effect_range: int = 0
+    limiter: Limiter = field(default_factory=Limiter)
     target_source_type: int = 0
 
     def serialize(self, deserializer: BinaryDeserializer):
@@ -713,12 +1039,16 @@ class Bonus(Serializeable):
         self.val_type = deserializer.load_integer()      # BonusValueType (1 byte, but loaded as integer)
         self.stacking = deserializer.load_string()  # String
         self.effect_range = deserializer.load_integer()  # BonusLimitEffect (1 byte, but loaded as integer)
-        
-        # Skip limiter (TLimiterPtr) - complex pointer type, skip for now
+
+        # Load limiter (TLimiterPtr) - polymorphic pointer type
+        self.limiter = deserializer.load_pointer(Limiter)
+        if self.limiter is not None:
+            logger.debug(f"Bonus.serialize: bonus type={self.type}, limiter type={type(self.limiter).__name__}, value={self.limiter}")
+
         # Skip propagator (TPropagatorPtr) - complex pointer type, skip for now
         # Skip updater (TUpdaterPtr) - complex pointer type, skip for now
         # Skip propagationUpdater (TUpdaterPtr) - complex pointer type, skip for now
-        
+
         self.target_source_type = deserializer.load_integer()  # BonusSource (1 byte, but loaded as integer)
 
 

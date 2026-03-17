@@ -23,6 +23,8 @@ class SerializationVersion(IntEnum):
     CURRENT = 873 + 15  # Corresponds to C++ CURRENT = HOTA_MAP_STACK_COUNT
     RELEASE_160 = 873
     CUSTOM_BONUS_ICONS = RELEASE_160 + 10  # 883
+    SERVER_STATISTICS = RELEASE_160 + 11  # 884
+    OPPOSITE_SIDE_LIMITER_OWNER = RELEASE_160 + 12  # 885
     BONUS_HIDDEN = RELEASE_160 + 15  # 888
     COMPACT_INTEGER_SERIALIZATION = 5
     COMPACT_STRING_SERIALIZATION = 5
@@ -248,14 +250,14 @@ class BinaryDeserializer:
         if is_null:
             return None
 
-        # Load pointer ID
+        # Load pointer ID (uint32_t in C++, but uses compact encoding)
         pointer_id = self.load_integer()
 
         # Check if we've already loaded this pointer
         if pointer_id in self.loaded_pointers:
             return self.loaded_pointers[pointer_id]
 
-        # Load type ID
+        # Load type ID (uint16_t in C++, but uses compact encoding)
         type_id = self.load_integer()
 
         if cls in cls.__registry__.values():
@@ -298,8 +300,10 @@ class Serializeable:
     @classmethod
     def register_type(cls, type_id: int):
         """Register a class with a type ID for polymorphic deserialization."""
-        cls.__registry__[type_id] = cls
-        return cls
+        def decorator(target_class):
+            cls.__registry__[type_id] = target_class
+            return target_class
+        return decorator
 
     def serialize(self, deserializer: BinaryDeserializer):
         """

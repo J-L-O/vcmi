@@ -18,6 +18,7 @@
 #include "lib/battle/BattleAction.h"
 #include "lib/battle/BattleInfo.h"
 #include "lib/bonuses/BonusSelector.h"
+#include "lib/bonuses/Limiters.h"
 #include "lib/battle/BattleLayout.h"
 #include "lib/battle/CPlayerBattleCallback.h"
 #include "lib/network/NetworkHandler.h"
@@ -199,6 +200,20 @@ void CRLBattleAI::activeStack(const BattleID & battleID, const CStack * stack)
 			print("      valType: " + std::to_string(static_cast<int>(bonus->valType)));
 			print("      turnsRemain: " + std::to_string(bonus->turnsRemain));
 			print("      effectRange: " + std::to_string(static_cast<int>(bonus->effectRange)));
+
+			// Enhanced limiter logging with type information
+			if (bonus->limiter)
+			{
+				// Get the type name using typeid for safety
+				const std::type_info& typeInfo = typeid(*bonus->limiter);
+				std::string limiterTypeName = typeInfo.name();
+				print("      limiter: " + limiterTypeName + " (exists)");
+			}
+			else
+			{
+				print("      limiter: null");
+			}
+
 			print("      targetSourceType: " + std::to_string(static_cast<int>(bonus->targetSourceType)));
 		}
 		
