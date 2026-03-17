@@ -327,12 +327,12 @@ class CCreatureAlignmentLimiter(Limiter):
 
     def __init__(self):
         super().__init__()
-        self.alignment = 0
+        self.alignment = EAlignment.ANY
 
     def serialize(self, deserializer: BinaryDeserializer):
         """Deserialize CreatureAlignmentLimiter"""
         # Load alignment
-        self.alignment = deserializer.load_integer()
+        self.alignment = EAlignment(deserializer.load_integer())
 
     def __repr__(self):
         return f"CCreatureAlignmentLimiter(alignment={self.alignment})"
@@ -417,6 +417,79 @@ class BonusNodeType(IntEnum):
     TOWN = 15
 
 
+class BonusDuration(IntEnum):
+    """Duration of bonus (bitflags)"""
+    PERMANENT = 1 << 0
+    ONE_BATTLE = 1 << 1
+    ONE_DAY = 1 << 2
+    ONE_WEEK = 1 << 3
+    N_TURNS = 1 << 4
+    N_DAYS = 1 << 5
+    UNTIL_BEING_ATTACKED = 1 << 6
+    UNTIL_ATTACK = 1 << 7
+    STACK_GETS_TURN = 1 << 8
+    COMMANDER_KILLED = 1 << 9
+    UNTIL_OWN_ATTACK = 1 << 10
+
+
+class BonusSource(IntEnum):
+    """Source of bonus"""
+    ARTIFACT = 0
+    ARTIFACT_INSTANCE = 1
+    OBJECT_TYPE = 2
+    OBJECT_INSTANCE = 3
+    CREATURE_ABILITY = 4
+    TERRAIN_NATIVE = 5
+    TERRAIN_OVERLAY = 6
+    SPELL_EFFECT = 7
+    TOWN_STRUCTURE = 8
+    HERO_BASE_SKILL = 9
+    SECONDARY_SKILL = 10
+    HERO_SPECIAL = 11
+    ARMY = 12
+    CAMPAIGN_BONUS = 13
+    STACK_EXPERIENCE = 14
+    COMMANDER = 15
+    GLOBAL = 16
+    OTHER = 17
+
+
+class BonusValueType(IntEnum):
+    """Type of bonus value"""
+    ADDITIVE_VALUE = 0
+    BASE_NUMBER = 1
+    PERCENT_TO_ALL = 2
+    PERCENT_TO_BASE = 3
+    PERCENT_TO_SOURCE = 4
+    PERCENT_TO_TARGET_TYPE = 5
+    INDEPENDENT_MAX = 6
+    INDEPENDENT_MIN = 7
+
+
+class BonusLimitEffect(IntEnum):
+    """Limit effect for bonus"""
+    NO_LIMIT = 0
+    ONLY_DISTANCE_FIGHT = 1
+    ONLY_MELEE_FIGHT = 2
+
+
+class BattleUnitTurnReason(IntEnum):
+    """Reason for battle unit turn"""
+    TURN_QUEUE = 0
+    MORALE = 1
+    HERO_SPELLCAST = 2
+    UNIT_SPELLCAST = 3
+    AUTOMATIC_ACTION = 4
+
+
+class EAlignment(IntEnum):
+    """Alignment"""
+    ANY = -1
+    GOOD = 0
+    EVIL = 1
+    NEUTRAL = 2
+
+
 class IPropagator(Serializeable):
     """Base class for bonus propagators"""
 
@@ -435,7 +508,7 @@ class CPropagatorNodeType(IPropagator):
     def serialize(self, deserializer: BinaryDeserializer):
         """Deserialize CPropagatorNodeType"""
         # Load node type (BonusNodeType enum)
-        self.nodeType = deserializer.load_integer()
+        self.nodeType = BonusNodeType(deserializer.load_integer())
 
     def __repr__(self):
         return f"CPropagatorNodeType(nodeType={self.nodeType})"
@@ -1167,9 +1240,9 @@ class Bonus(Serializeable):
     type: int = 0
     subtype: object = None  # Will be one of: BonusCustomSubtype, SpellID, CreatureID, PrimarySkill, TerrainId, GameResID, SpellSchool, BonusTypeID
     val: int = 0
-    val_type: int = 0
-    duration: int = 0
-    source: int = 0
+    val_type: BonusValueType = BonusValueType.ADDITIVE_VALUE
+    duration: BonusDuration = BonusDuration.PERMANENT
+    source: BonusSource = BonusSource.OTHER
     sid: object = None  # Will be one of: BonusCustomSource, SpellID, CreatureID, ArtifactID, CampaignScenarioID, SecondarySkill, HeroTypeID, Obj, ObjectInstanceID, BuildingTypeUniqueID, BattleField, ArtifactInstanceID
     description: MetaString = field(default_factory=MetaString)
     custom_icon_path: ImagePath = field(default_factory=ImagePath)
@@ -1177,16 +1250,16 @@ class Bonus(Serializeable):
     additional_info: List[int] = field(default_factory=list)
     turnsRemain: int = 0
     stacking: str = field(default_factory=str)
-    effect_range: int = 0
+    effect_range: BonusLimitEffect = BonusLimitEffect.NO_LIMIT
     limiter: Limiter = field(default_factory=Limiter)
     propagator: IPropagator = field(default_factory=IPropagator)
     updater: IUpdater = field(default_factory=IUpdater)
     propagationUpdater: IUpdater = field(default_factory=IUpdater)
-    target_source_type: int = 0
+    target_source_type: BonusSource = BonusSource.OTHER
 
     def serialize(self, deserializer: BinaryDeserializer):
         # Complete bonus deserialization matching C++ implementation
-        self.duration = deserializer.load_integer()  # BonusDuration::Type (2 bytes, but loaded as integer)
+        self.duration = BonusDuration(deserializer.load_integer())  # BonusDuration::Type (2 bytes)
         self.type = deserializer.load_integer()      # BonusType (2 bytes, but loaded as integer)
 
         # Load BonusSubtypeID as VariantIdentifier
@@ -1203,7 +1276,7 @@ class Bonus(Serializeable):
         ]
         self.subtype = deserializer.load_variant(subtype_variant_types)
 
-        self.source = deserializer.load_integer()    # BonusSource (1 byte, but loaded as integer)
+        self.source = BonusSource(deserializer.load_integer())    # BonusSource (1 byte)
         self.val = deserializer.load_integer()       # si32 (4 bytes)
 
         # Load BonusSourceID as VariantIdentifier
@@ -1245,9 +1318,9 @@ class Bonus(Serializeable):
         self.additional_info = deserializer.load_vector(int)
         
         self.turnsRemain = deserializer.load_integer()  # si16 (2 bytes, but loaded as integer)
-        self.val_type = deserializer.load_integer()      # BonusValueType (1 byte, but loaded as integer)
+        self.val_type = BonusValueType(deserializer.load_integer())      # BonusValueType (1 byte)
         self.stacking = deserializer.load_string()  # String
-        self.effect_range = deserializer.load_integer()  # BonusLimitEffect (1 byte, but loaded as integer)
+        self.effect_range = BonusLimitEffect(deserializer.load_integer())  # BonusLimitEffect (1 byte)
 
         # Load limiter (TLimiterPtr) - polymorphic pointer type
         self.limiter = deserializer.load_pointer(Limiter)
@@ -1269,7 +1342,7 @@ class Bonus(Serializeable):
         if self.propagationUpdater is not None:
             logger.debug(f"Bonus.serialize: bonus type={self.type}, propagationUpdater type={type(self.propagationUpdater).__name__}, value={self.propagationUpdater}")
 
-        self.target_source_type = deserializer.load_integer()  # BonusSource (1 byte, but loaded as integer)
+        self.target_source_type = BonusSource(deserializer.load_integer())  # BonusSource (1 byte)
 
 
 @dataclass
@@ -1482,7 +1555,7 @@ class BattleInfo(Serializeable):
     tactics_side: BattleSide = BattleSide.NONE
     tactic_distance: int = 0
     # CBonusSystemNode fields
-    node_type: int = 0
+    node_type: BonusNodeType = BonusNodeType.UNKNOWN
     exported_bonuses: BonusList = field(default_factory=BonusList)
     replay_allowed: bool = False
 
@@ -1586,7 +1659,7 @@ class BattleInfo(Serializeable):
 
             # Load CBonusSystemNode fields (static_cast<CBonusSystemNode&>(*this))
             logger.debug(f"Loading CBonusSystemNode fields at position {deserializer.position}")
-            self.node_type = deserializer.load_integer()
+            self.node_type = BonusNodeType(deserializer.load_integer())
             self.exported_bonuses = BonusList()
             self.exported_bonuses.serialize(deserializer)
             logger.debug(f"After bonuses: position {deserializer.position}")
@@ -1653,12 +1726,12 @@ class BattleSetActiveStack(CPackForClient):
     """Notification about which stack should act"""
     battle_id: BattleID = field(default_factory=lambda: BattleID(0))
     stack: int = 0
-    reason: int = 0  # BattleUnitTurnReason
+    reason: BattleUnitTurnReason = BattleUnitTurnReason.TURN_QUEUE
 
     def serialize(self, deserializer: BinaryDeserializer):
         self.battle_id = BattleID(deserializer.load_integer())
         self.stack = deserializer.load_integer()
-        self.reason = deserializer.load_integer()
+        self.reason = BattleUnitTurnReason(deserializer.load_integer())
 
 
 # Register pack types after class definition
