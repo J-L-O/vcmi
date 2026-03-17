@@ -393,6 +393,212 @@ class HasChargesLimiter(Limiter):
 
 
 # ============================================================================
+# Propagator Classes
+# ============================================================================
+
+class BonusNodeType(IntEnum):
+    """Type of bonus node in the bonus system tree"""
+    NONE = -1
+    UNKNOWN = 0
+    STACK_INSTANCE = 1
+    STACK_BATTLE = 2
+    ARMY = 3
+    ARTIFACT = 4
+    CREATURE = 5
+    ARTIFACT_INSTANCE = 6
+    HERO = 7
+    PLAYER = 8
+    TEAM = 9
+    TOWN_AND_VISITOR = 10
+    BATTLE_WIDE = 11
+    COMMANDER = 12
+    GLOBAL_EFFECTS = 13
+    BOAT = 14
+    TOWN = 15
+
+
+class IPropagator(Serializeable):
+    """Base class for bonus propagators"""
+
+    def __init__(self):
+        pass
+
+
+@Serializeable.register_type(60)
+class CPropagatorNodeType(IPropagator):
+    """Propagator that specifies a node type"""
+
+    def __init__(self):
+        super().__init__()
+        self.nodeType = BonusNodeType.UNKNOWN
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize CPropagatorNodeType"""
+        # Load node type (BonusNodeType enum)
+        self.nodeType = deserializer.load_integer()
+
+    def __repr__(self):
+        return f"CPropagatorNodeType(nodeType={self.nodeType})"
+
+
+# ============================================================================
+# Updater Classes
+# ============================================================================
+
+class IUpdater(Serializeable):
+    """Base class for bonus updaters"""
+
+    def __init__(self):
+        pass
+
+
+@Serializeable.register_type(43)
+class GrowsWithLevelUpdater(IUpdater):
+    """Updater that grows bonus value with hero level"""
+
+    def __init__(self):
+        super().__init__()
+        self.valPer20 = 0
+        self.stepSize = 1
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize GrowsWithLevelUpdater"""
+        self.valPer20 = deserializer.load_integer()
+        self.stepSize = deserializer.load_integer()
+
+    def __repr__(self):
+        return f"GrowsWithLevelUpdater(valPer20={self.valPer20}, stepSize={self.stepSize})"
+
+
+@Serializeable.register_type(44)
+class TimesHeroLevelUpdater(IUpdater):
+    """Updater that multiplies bonus by hero level"""
+
+    def __init__(self):
+        super().__init__()
+        self.stepSize = 1
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize TimesHeroLevelUpdater"""
+        # Always load stepSize in current version
+        self.stepSize = deserializer.load_integer()
+
+    def __repr__(self):
+        return f"TimesHeroLevelUpdater(stepSize={self.stepSize})"
+
+
+@Serializeable.register_type(45)
+class TimesStackLevelUpdater(IUpdater):
+    """Updater that multiplies bonus by stack level"""
+
+    def __init__(self):
+        super().__init__()
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize TimesStackLevelUpdater"""
+        pass  # No additional fields
+
+    def __repr__(self):
+        return "TimesStackLevelUpdater()"
+
+
+@Serializeable.register_type(46)
+class OwnerUpdater(IUpdater):
+    """Updater for owner-based bonuses"""
+
+    def __init__(self):
+        super().__init__()
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize OwnerUpdater"""
+        pass  # No additional fields
+
+    def __repr__(self):
+        return "OwnerUpdater()"
+
+
+@Serializeable.register_type(245)
+class TimesHeroLevelDivideStackLevelUpdater(IUpdater):
+    """Updater that multiplies by hero level and divides by stack level"""
+
+    def __init__(self):
+        super().__init__()
+        self.stepSize = 1
+        self.divideStackLevel = None
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize TimesHeroLevelDivideStackLevelUpdater"""
+        # Always load stepSize in current version
+        self.stepSize = deserializer.load_integer()
+        # Then deserialize the nested DivideStackLevelUpdater
+        self.divideStackLevel = deserializer.load_pointer(IUpdater)
+
+    def __repr__(self):
+        return f"TimesHeroLevelDivideStackLevelUpdater(stepSize={self.stepSize})"
+
+
+@Serializeable.register_type(246)
+class DivideStackLevelUpdater(IUpdater):
+    """Updater that divides bonus by stack level"""
+
+    def __init__(self):
+        super().__init__()
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize DivideStackLevelUpdater"""
+        pass  # No additional fields
+
+    def __repr__(self):
+        return "DivideStackLevelUpdater()"
+
+
+@Serializeable.register_type(249)
+class TimesStackSizeUpdater(IUpdater):
+    """Updater that multiplies bonus by stack size"""
+
+    def __init__(self):
+        super().__init__()
+        self.minimum = 0
+        self.maximum = 0
+        self.stepSize = 1
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize TimesStackSizeUpdater"""
+        self.minimum = deserializer.load_integer()
+        self.maximum = deserializer.load_integer()
+        self.stepSize = deserializer.load_integer()
+
+    def __repr__(self):
+        return f"TimesStackSizeUpdater(min={self.minimum}, max={self.maximum}, stepSize={self.stepSize})"
+
+
+@Serializeable.register_type(250)
+class TimesArmySizeUpdater(IUpdater):
+    """Updater that multiplies bonus by army size"""
+
+    def __init__(self):
+        super().__init__()
+        self.minimum = 0
+        self.maximum = 0
+        self.stepSize = 1
+        self.filteredLevel = -1
+        self.filteredCreature = 0
+        self.filteredFaction = 0
+
+    def serialize(self, deserializer: BinaryDeserializer):
+        """Deserialize TimesArmySizeUpdater"""
+        self.minimum = deserializer.load_integer()
+        self.maximum = deserializer.load_integer()
+        self.stepSize = deserializer.load_integer()
+        self.filteredLevel = deserializer.load_integer()
+        self.filteredCreature = deserializer.load_integer()  # CreatureID
+        self.filteredFaction = deserializer.load_integer()  # FactionID
+
+    def __repr__(self):
+        return f"TimesArmySizeUpdater(min={self.minimum}, max={self.maximum}, stepSize={self.stepSize}, filteredLevel={self.filteredLevel})"
+
+
+# ============================================================================
 # Core Type Enums
 # ============================================================================
 
@@ -973,6 +1179,9 @@ class Bonus(Serializeable):
     stacking: str = field(default_factory=str)
     effect_range: int = 0
     limiter: Limiter = field(default_factory=Limiter)
+    propagator: IPropagator = field(default_factory=IPropagator)
+    updater: IUpdater = field(default_factory=IUpdater)
+    propagationUpdater: IUpdater = field(default_factory=IUpdater)
     target_source_type: int = 0
 
     def serialize(self, deserializer: BinaryDeserializer):
@@ -1045,9 +1254,20 @@ class Bonus(Serializeable):
         if self.limiter is not None:
             logger.debug(f"Bonus.serialize: bonus type={self.type}, limiter type={type(self.limiter).__name__}, value={self.limiter}")
 
-        # Skip propagator (TPropagatorPtr) - complex pointer type, skip for now
-        # Skip updater (TUpdaterPtr) - complex pointer type, skip for now
-        # Skip propagationUpdater (TUpdaterPtr) - complex pointer type, skip for now
+        # Load propagator (TPropagatorPtr) - polymorphic pointer type
+        self.propagator = deserializer.load_pointer(IPropagator)
+        if self.propagator is not None:
+            logger.debug(f"Bonus.serialize: bonus type={self.type}, propagator type={type(self.propagator).__name__}, value={self.propagator}")
+
+        # Load updater (TUpdaterPtr) - polymorphic pointer type
+        self.updater = deserializer.load_pointer(IUpdater)
+        if self.updater is not None:
+            logger.debug(f"Bonus.serialize: bonus type={self.type}, updater type={type(self.updater).__name__}, value={self.updater}")
+
+        # Load propagationUpdater (TUpdaterPtr) - polymorphic pointer type
+        self.propagationUpdater = deserializer.load_pointer(IUpdater)
+        if self.propagationUpdater is not None:
+            logger.debug(f"Bonus.serialize: bonus type={self.type}, propagationUpdater type={type(self.propagationUpdater).__name__}, value={self.propagationUpdater}")
 
         self.target_source_type = deserializer.load_integer()  # BonusSource (1 byte, but loaded as integer)
 
