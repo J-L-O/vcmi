@@ -11,7 +11,7 @@ import struct
 import logging
 from typing import Optional, Callable, List, Dict
 from serializer import pack as print_pack
-from vcmi_types import deserialize_pack, CPack, BattleStart
+from vcmi_types import deserialize_pack, serialize_pack, CPack, BattleStart
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -224,6 +224,24 @@ class VCMITCPServer:
                     if pack is None:
                         logger.warning(f"Failed to deserialize pack from {client_id}")
                         continue
+
+                    # Round-trip check: re-serialize and compare
+                    reserialized = serialize_pack(pack)
+                    if reserialized == data:
+                        logger.info(f"[{client_id}] Round-trip OK ({len(data)} bytes)")
+                    else:
+                        logger.error(
+                            f"[{client_id}] Round-trip MISMATCH! "
+                            f"orig={len(data)} bytes, re={len(reserialized)} bytes"
+                        )
+                        # Find first differing byte
+                        for i in range(min(len(data), len(reserialized))):
+                            if data[i] != reserialized[i]:
+                                logger.error(
+                                    f"  First diff at byte {i}: "
+                                    f"orig=0x{data[i]:02x} re=0x{reserialized[i]:02x}"
+                                )
+                                break
 
                     # Handle pack based on type
                     self._handle_pack(pack, client_id)

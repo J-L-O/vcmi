@@ -2,13 +2,17 @@
 VCMI Data Type Definitions
 
 This module defines Python classes corresponding to VCMI game data structures
-used in network communication.
+used in network communication. All serialize() methods are bidirectional -
+they work with both BinaryDeserializer (reading) and BinarySerializer (writing).
 """
 
 from typing import List, Optional, Set, Dict
 from dataclasses import dataclass, field
 from enum import IntEnum
-from serializer import Serializeable, BinaryDeserializer, pack, SerializationVersion
+from serializer import (
+    Serializeable, BinaryDeserializer, BinarySerializer,
+    pack, SerializationVersion,
+)
 import logging
 
 
@@ -55,11 +59,10 @@ class ImagePath(Serializeable):
         self.name: str = ""
         self.originalName: str = ""
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize ImagePath from binary format"""
-        self.type = deserializer.load_integer()  # EResType
-        self.name = deserializer.load_string()   # uppercase name without extension
-        self.originalName = deserializer.load_string()  # original case name
+    def serialize(self, h):
+        self.type = h.integer(self.type)
+        self.name = h.string(self.name)
+        self.originalName = h.string(self.originalName)
 
     def __repr__(self):
         return f"ImagePath({self.name})"
@@ -78,9 +81,8 @@ class Limiter(Serializeable):
     def __init__(self):
         pass
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Base limiter serialization - to be overridden by subclasses"""
-        pass
+    def serialize(self, h):
+        pass  # Base limiter has no fields
 
     def __repr__(self):
         return f"{self.__class__.__name__}()"
@@ -94,10 +96,8 @@ class AnyOfLimiter(Limiter):
         super().__init__()
         self.limiters = []
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize AnyOfLimiter"""
-        # Load vector of child limiters
-        self.limiters = deserializer.load_vector(Limiter)
+    def serialize(self, h):
+        self.limiters = h.vector(self.limiters, Limiter)
 
     def __repr__(self):
         return f"AnyOfLimiter({len(self.limiters)} children)"
@@ -111,10 +111,8 @@ class NoneOfLimiter(Limiter):
         super().__init__()
         self.limiters = []
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize NoneOfLimiter"""
-        # Load vector of child limiters
-        self.limiters = deserializer.load_vector(Limiter)
+    def serialize(self, h):
+        self.limiters = h.vector(self.limiters, Limiter)
 
     def __repr__(self):
         return f"NoneOfLimiter({len(self.limiters)} children)"
@@ -126,15 +124,11 @@ class OppositeSideLimiter(Limiter):
 
     def __init__(self):
         super().__init__()
-        # Owner field is only present in old versions
         self.owner = None
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize OppositeSideLimiter"""
-        # Check if owner field is present in this version
-        if deserializer.version < SerializationVersion.OPPOSITE_SIDE_LIMITER_OWNER:
-            # Load owner field (PlayerColor) for old versions
-            self.owner = deserializer.load_integer()
+    def serialize(self, h):
+        if h.version < SerializationVersion.OPPOSITE_SIDE_LIMITER_OWNER:
+            self.owner = h.integer(self.owner if self.owner is not None else 0)
 
     def __repr__(self):
         if self.owner is not None:
@@ -150,10 +144,8 @@ class AllOfLimiter(Limiter):
         super().__init__()
         self.limiters = []
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize AllOfLimiter"""
-        # Load vector of child limiters
-        self.limiters = deserializer.load_vector(Limiter)
+    def serialize(self, h):
+        self.limiters = h.vector(self.limiters, Limiter)
 
     def __repr__(self):
         return f"AllOfLimiter({len(self.limiters)} children)"
@@ -168,12 +160,9 @@ class CCreatureTypeLimiter(Limiter):
         self.creatureID = 0
         self.includeUpgrades = False
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize CreatureTypeLimiter"""
-        # Load creature ID
-        self.creatureID = deserializer.load_integer()
-        # Load includeUpgrades flag
-        self.includeUpgrades = deserializer.load_bool()
+    def serialize(self, h):
+        self.creatureID = h.integer(self.creatureID)
+        self.includeUpgrades = h.bool_(self.includeUpgrades)
 
     def __repr__(self):
         return f"CCreatureTypeLimiter(creatureID={self.creatureID}, includeUpgrades={self.includeUpgrades})"
@@ -193,78 +182,72 @@ class HasAnotherBonusLimiter(Limiter):
         self.isSourceRelevant = False
         self.isSourceIDRelevant = False
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize HasAnotherBonusLimiter"""
-        # Load bonus type
-        self.type = deserializer.load_integer()
-        # Load bonus subtype
-        self.subtype = deserializer.load_integer()
-        # Load bonus source
-        self.source = deserializer.load_integer()
-        # Load bonus source ID
-        self.sid = deserializer.load_integer()
-        # Load relevance flags
-        self.isSubtypeRelevant = deserializer.load_bool()
-        self.isSourceRelevant = deserializer.load_bool()
-        self.isSourceIDRelevant = deserializer.load_bool()
+    def serialize(self, h):
+        self.type = h.integer(self.type)
+        self.subtype = h.integer(self.subtype)
+        self.source = h.integer(self.source)
+        self.sid = h.integer(self.sid)
+        self.isSubtypeRelevant = h.bool_(self.isSubtypeRelevant)
+        self.isSourceRelevant = h.bool_(self.isSourceRelevant)
+        self.isSourceIDRelevant = h.bool_(self.isSourceIDRelevant)
 
     def __repr__(self):
         return f"HasAnotherBonusLimiter(type={self.type}, source={self.source})"
 
 
+# ============================================================================
+# Terrain / Faction ID helpers (bidirectional string <-> int conversion)
+# ============================================================================
+
 TERRAIN_JSON_KEY_TO_INDEX = {
-    "dirt": 0,
-    "sand": 1,
-    "grass": 2,
-    "snow": 3,
-    "swamp": 4,
-    "rough": 5,
-    "subterra": 6,
-    "lava": 7,
-    "water": 8,
-    "rock": 9,
+    "dirt": 0, "sand": 1, "grass": 2, "snow": 3, "swamp": 4,
+    "rough": 5, "subterra": 6, "lava": 7, "water": 8, "rock": 9,
 }
+TERRAIN_INDEX_TO_JSON_KEY = {v: k for k, v in TERRAIN_JSON_KEY_TO_INDEX.items()}
 
 FACTION_JSON_KEY_TO_INDEX = {
-    "castle": 0,
-    "rampart": 1,
-    "tower": 2,
-    "inferno": 3,
-    "necropolis": 4,
-    "dungeon": 5,
-    "stronghold": 6,
-    "fortress": 7,
-    "conflux": 8,
-    "neutral": 9,
-    "random": -1,
+    "castle": 0, "rampart": 1, "tower": 2, "inferno": 3,
+    "necropolis": 4, "dungeon": 5, "stronghold": 6, "fortress": 7,
+    "conflux": 8, "neutral": 9, "random": -1,
 }
+FACTION_INDEX_TO_JSON_KEY = {v: k for k, v in FACTION_JSON_KEY_TO_INDEX.items()}
 
 
-def deserialize_terrain_id(deserializer: BinaryDeserializer) -> int:
-    """Deserialize a TerrainId from the binary stream.
-    
-    C++ TerrainId serializes as:
-    - "" (empty string) -> -1 (NONE)
-    - "native" -> -4 (NATIVE_TERRAIN)
-    - Otherwise, the JSON key (e.g., "dirt", "grass") -> index
-    """
-    terrain_str = deserializer.load_string()
-    
-    if terrain_str == "":
-        return -1  # NONE
-    elif terrain_str == "native":
-        return -4  # NATIVE_TERRAIN
+def handle_terrain_id(h, value) -> int:
+    """Bidirectional terrain ID: string on wire, int in Python."""
+    if h.is_writing:
+        if value == -1:
+            h.string("")
+        elif value == -4:
+            h.string("native")
+        else:
+            h.string(TERRAIN_INDEX_TO_JSON_KEY.get(value, ""))
+        return value
     else:
+        terrain_str = h.string("")
+        if terrain_str == "":
+            return -1
+        elif terrain_str == "native":
+            return -4
         return TERRAIN_JSON_KEY_TO_INDEX.get(terrain_str, -1)
 
 
-def deserialize_faction_id(deserializer: BinaryDeserializer) -> int:
-    """Deserialize a FactionID from the binary stream.
-    
-    C++ FactionID serializes as a string (the JSON key like "castle", "rampart", etc.)
-    """
-    faction_str = deserializer.load_string()
-    return FACTION_JSON_KEY_TO_INDEX.get(faction_str, -1)
+def handle_faction_id(h, value) -> int:
+    """Bidirectional faction ID: string on wire, int in Python."""
+    if h.is_writing:
+        h.string(FACTION_INDEX_TO_JSON_KEY.get(value, ""))
+        return value
+    else:
+        faction_str = h.string("")
+        return FACTION_JSON_KEY_TO_INDEX.get(faction_str, -1)
+
+
+# Keep old names for backward compatibility
+def deserialize_terrain_id(deserializer):
+    return handle_terrain_id(deserializer, 0)
+
+def deserialize_faction_id(deserializer):
+    return handle_faction_id(deserializer, 0)
 
 
 @Serializeable.register_type(64)
@@ -275,10 +258,8 @@ class TerrainLimiter(Limiter):
         super().__init__()
         self.terrainType = 0
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize TerrainLimiter"""
-        # Load terrain type (serialized as string in C++)
-        self.terrainType = deserialize_terrain_id(deserializer)
+    def serialize(self, h):
+        self.terrainType = handle_terrain_id(h, self.terrainType)
 
     def __repr__(self):
         return f"TerrainLimiter(terrainType={self.terrainType})"
@@ -292,10 +273,8 @@ class FactionLimiter(Limiter):
         super().__init__()
         self.faction = 0
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize FactionLimiter"""
-        # Load faction ID (serialized as string in C++)
-        self.faction = deserialize_faction_id(deserializer)
+    def serialize(self, h):
+        self.faction = handle_faction_id(h, self.faction)
 
     def __repr__(self):
         return f"FactionLimiter(faction={self.faction})"
@@ -310,12 +289,9 @@ class CCreatureLevelLimiter(Limiter):
         self.minLevel = 0
         self.maxLevel = 0
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize CreatureLevelLimiter"""
-        # Load min level
-        self.minLevel = deserializer.load_integer()
-        # Load max level
-        self.maxLevel = deserializer.load_integer()
+    def serialize(self, h):
+        self.minLevel = h.integer(self.minLevel)
+        self.maxLevel = h.integer(self.maxLevel)
 
     def __repr__(self):
         return f"CCreatureLevelLimiter(min={self.minLevel}, max={self.maxLevel})"
@@ -329,10 +305,8 @@ class CCreatureAlignmentLimiter(Limiter):
         super().__init__()
         self.alignment = EAlignment.ANY
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize CreatureAlignmentLimiter"""
-        # Load alignment
-        self.alignment = EAlignment(deserializer.load_integer())
+    def serialize(self, h):
+        self.alignment = EAlignment(h.integer(int(self.alignment)))
 
     def __repr__(self):
         return f"CCreatureAlignmentLimiter(alignment={self.alignment})"
@@ -347,12 +321,9 @@ class RankRangeLimiter(Limiter):
         self.minRank = 0
         self.maxRank = 0
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize RankRangeLimiter"""
-        # Load min rank
-        self.minRank = deserializer.load_integer()
-        # Load max rank
-        self.maxRank = deserializer.load_integer()
+    def serialize(self, h):
+        self.minRank = h.integer(self.minRank)
+        self.maxRank = h.integer(self.maxRank)
 
     def __repr__(self):
         return f"RankRangeLimiter(min={self.minRank}, max={self.maxRank})"
@@ -366,10 +337,8 @@ class UnitOnHexLimiter(Limiter):
         super().__init__()
         self.applicableHexes = []
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize UnitOnHexLimiter"""
-        # Load applicable hexes vector
-        self.applicableHexes = deserializer.load_vector(int)
+    def serialize(self, h):
+        self.applicableHexes = h.vector(self.applicableHexes, int)
 
     def __repr__(self):
         return f"UnitOnHexLimiter({len(self.applicableHexes)} hexes)"
@@ -383,10 +352,8 @@ class HasChargesLimiter(Limiter):
         super().__init__()
         self.chargeCost = 1
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize HasChargesLimiter"""
-        # Load charge cost
-        self.chargeCost = deserializer.load_integer()
+    def serialize(self, h):
+        self.chargeCost = h.integer(self.chargeCost)
 
     def __repr__(self):
         return f"HasChargesLimiter(chargeCost={self.chargeCost})"
@@ -505,10 +472,8 @@ class CPropagatorNodeType(IPropagator):
         super().__init__()
         self.nodeType = BonusNodeType.UNKNOWN
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize CPropagatorNodeType"""
-        # Load node type (BonusNodeType enum)
-        self.nodeType = BonusNodeType(deserializer.load_integer())
+    def serialize(self, h):
+        self.nodeType = BonusNodeType(h.integer(int(self.nodeType)))
 
     def __repr__(self):
         return f"CPropagatorNodeType(nodeType={self.nodeType})"
@@ -534,10 +499,9 @@ class GrowsWithLevelUpdater(IUpdater):
         self.valPer20 = 0
         self.stepSize = 1
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize GrowsWithLevelUpdater"""
-        self.valPer20 = deserializer.load_integer()
-        self.stepSize = deserializer.load_integer()
+    def serialize(self, h):
+        self.valPer20 = h.integer(self.valPer20)
+        self.stepSize = h.integer(self.stepSize)
 
     def __repr__(self):
         return f"GrowsWithLevelUpdater(valPer20={self.valPer20}, stepSize={self.stepSize})"
@@ -551,10 +515,8 @@ class TimesHeroLevelUpdater(IUpdater):
         super().__init__()
         self.stepSize = 1
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize TimesHeroLevelUpdater"""
-        # Always load stepSize in current version
-        self.stepSize = deserializer.load_integer()
+    def serialize(self, h):
+        self.stepSize = h.integer(self.stepSize)
 
     def __repr__(self):
         return f"TimesHeroLevelUpdater(stepSize={self.stepSize})"
@@ -567,9 +529,8 @@ class TimesStackLevelUpdater(IUpdater):
     def __init__(self):
         super().__init__()
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize TimesStackLevelUpdater"""
-        pass  # No additional fields
+    def serialize(self, h):
+        pass
 
     def __repr__(self):
         return "TimesStackLevelUpdater()"
@@ -582,9 +543,8 @@ class OwnerUpdater(IUpdater):
     def __init__(self):
         super().__init__()
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize OwnerUpdater"""
-        pass  # No additional fields
+    def serialize(self, h):
+        pass
 
     def __repr__(self):
         return "OwnerUpdater()"
@@ -599,12 +559,9 @@ class TimesHeroLevelDivideStackLevelUpdater(IUpdater):
         self.stepSize = 1
         self.divideStackLevel = None
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize TimesHeroLevelDivideStackLevelUpdater"""
-        # Always load stepSize in current version
-        self.stepSize = deserializer.load_integer()
-        # Then deserialize the nested DivideStackLevelUpdater
-        self.divideStackLevel = deserializer.load_pointer(IUpdater)
+    def serialize(self, h):
+        self.stepSize = h.integer(self.stepSize)
+        self.divideStackLevel = h.pointer(self.divideStackLevel, IUpdater)
 
     def __repr__(self):
         return f"TimesHeroLevelDivideStackLevelUpdater(stepSize={self.stepSize})"
@@ -617,9 +574,8 @@ class DivideStackLevelUpdater(IUpdater):
     def __init__(self):
         super().__init__()
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize DivideStackLevelUpdater"""
-        pass  # No additional fields
+    def serialize(self, h):
+        pass
 
     def __repr__(self):
         return "DivideStackLevelUpdater()"
@@ -635,11 +591,10 @@ class TimesStackSizeUpdater(IUpdater):
         self.maximum = 0
         self.stepSize = 1
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize TimesStackSizeUpdater"""
-        self.minimum = deserializer.load_integer()
-        self.maximum = deserializer.load_integer()
-        self.stepSize = deserializer.load_integer()
+    def serialize(self, h):
+        self.minimum = h.integer(self.minimum)
+        self.maximum = h.integer(self.maximum)
+        self.stepSize = h.integer(self.stepSize)
 
     def __repr__(self):
         return f"TimesStackSizeUpdater(min={self.minimum}, max={self.maximum}, stepSize={self.stepSize})"
@@ -658,14 +613,13 @@ class TimesArmySizeUpdater(IUpdater):
         self.filteredCreature = 0
         self.filteredFaction = 0
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize TimesArmySizeUpdater"""
-        self.minimum = deserializer.load_integer()
-        self.maximum = deserializer.load_integer()
-        self.stepSize = deserializer.load_integer()
-        self.filteredLevel = deserializer.load_integer()
-        self.filteredCreature = deserializer.load_integer()  # CreatureID
-        self.filteredFaction = deserializer.load_integer()  # FactionID
+    def serialize(self, h):
+        self.minimum = h.integer(self.minimum)
+        self.maximum = h.integer(self.maximum)
+        self.stepSize = h.integer(self.stepSize)
+        self.filteredLevel = h.integer(self.filteredLevel)
+        self.filteredCreature = h.integer(self.filteredCreature)
+        self.filteredFaction = h.integer(self.filteredFaction)
 
     def __repr__(self):
         return f"TimesArmySizeUpdater(min={self.minimum}, max={self.maximum}, stepSize={self.stepSize}, filteredLevel={self.filteredLevel})"
@@ -690,13 +644,10 @@ class BonusCustomSubtype:
     """Bonus custom subtype identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"BonusCustomSubtype({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -704,16 +655,12 @@ class BonusCustomSubtype:
 class SpellID:
     """Spell identifier"""
     NONE = -1
-
     def __init__(self, value: int = -1):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"SpellID({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -722,13 +669,10 @@ class CreatureID:
     """Creature identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"CreatureID({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -737,20 +681,16 @@ class PrimarySkill:
     """Primary skill identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"PrimarySkill({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
 
 class TerrainId:
-    """Terrain type identifier - flexible wrapper to handle any value"""
-    # Common terrain types (for reference)
+    """Terrain type identifier"""
     DIRT = 0
     GRASS = 1
     SAND = 2
@@ -759,19 +699,14 @@ class TerrainId:
     SWAMP = 5
     SNOW = 6
     LAVA = 7
-
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def __int__(self):
         return self.value
-
     def to_string(self) -> str:
         return f"TerrainId({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -780,13 +715,10 @@ class GameResID:
     """Game resource identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"GameResID({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -795,13 +727,10 @@ class SpellSchool:
     """Spell school identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"SpellSchool({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -810,13 +739,10 @@ class BonusTypeID:
     """Bonus type identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"BonusTypeID({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -825,13 +751,10 @@ class BonusCustomSource:
     """Bonus custom source identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"BonusCustomSource({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -840,13 +763,10 @@ class ArtifactID:
     """Artifact identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"ArtifactID({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -855,13 +775,10 @@ class CampaignScenarioID:
     """Campaign scenario identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"CampaignScenarioID({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -870,13 +787,10 @@ class SecondarySkill:
     """Secondary skill identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"SecondarySkill({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -885,13 +799,10 @@ class HeroTypeID:
     """Hero type identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"HeroTypeID({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -900,13 +811,10 @@ class Obj:
     """Object identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"Obj({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -914,21 +822,16 @@ class Obj:
 class ObjectInstanceID:
     """Object instance identifiers"""
     NONE = -1
-
     def __init__(self, value: int = -1):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def __eq__(self, other):
         if isinstance(other, ObjectInstanceID):
             return self.value == other.value
         return False
-
     def to_string(self) -> str:
         return f"ObjectInstanceID({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -937,13 +840,10 @@ class BuildingTypeUniqueID:
     """Building type unique identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"BuildingTypeUniqueID({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -952,13 +852,10 @@ class BattleField:
     """Battle field identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"BattleField({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -967,13 +864,10 @@ class ArtifactInstanceID:
     """Artifact instance identifier"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"ArtifactInstanceID({self.value})"
-
     def __repr__(self):
         return self.to_string()
 
@@ -1015,18 +909,14 @@ class PlayerColor:
 
     def __init__(self, value: int = 255):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def to_string(self) -> str:
         return f"PlayerColor({self.value})"
-
     def __eq__(self, other):
         if isinstance(other, PlayerColor):
             return self.value == other.value
         return False
-
     def __repr__(self):
         return self.to_string()
 
@@ -1054,36 +944,31 @@ class MetaString(Serializeable):
     """String formatting class that supports transfer over network with localization"""
 
     exact_strings: List[str] = field(default_factory=list)
-    local_strings: List[tuple] = field(default_factory=list)  # (EMetaText, ui32)
+    local_strings: List[tuple] = field(default_factory=list)
     strings_text_id: List[str] = field(default_factory=list)
-    message: List[int] = field(default_factory=list)  # EMessage
+    message: List[int] = field(default_factory=list)
     numbers: List[int] = field(default_factory=list)
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        """Deserialize MetaString from binary format"""
-        # Serialize exact strings (vector of strings)
-        exact_strings_count = deserializer.load_integer()
-        self.exact_strings = [deserializer.load_string() for _ in range(exact_strings_count)]
+    def serialize(self, h):
+        self.exact_strings = h.vector(self.exact_strings, str)
 
-        # Serialize local strings (vector of pairs<EMetaText, ui32>)
-        local_strings_count = deserializer.load_integer()
-        self.local_strings = []
-        for _ in range(local_strings_count):
-            meta_text_int = deserializer.load_integer()
-            ui32_value = deserializer.load_integer()
-            self.local_strings.append((EMetaText(meta_text_int), ui32_value))
+        # local_strings: vector of (EMetaText, ui32) pairs
+        if h.is_reading:
+            count = h.integer()
+            self.local_strings = []
+            for _ in range(count):
+                meta_text_int = h.integer()
+                ui32_value = h.integer()
+                self.local_strings.append((EMetaText(meta_text_int), ui32_value))
+        else:
+            h.integer(len(self.local_strings))
+            for meta_text, ui32_value in self.local_strings:
+                h.integer(int(meta_text))
+                h.integer(ui32_value)
 
-        # Serialize strings text ID (vector of strings)
-        strings_text_id_count = deserializer.load_integer()
-        self.strings_text_id = [deserializer.load_string() for _ in range(strings_text_id_count)]
-
-        # Serialize messages (vector of EMessage)
-        message_count = deserializer.load_integer()
-        self.message = [deserializer.load_integer() for _ in range(message_count)]
-
-        # Serialize numbers (vector of int64_t)
-        numbers_count = deserializer.load_integer()
-        self.numbers = [deserializer.load_integer() for _ in range(numbers_count)]
+        self.strings_text_id = h.vector(self.strings_text_id, str)
+        self.message = h.vector(self.message, int)
+        self.numbers = h.vector(self.numbers, int)
 
     def to_string(self) -> str:
         """Convert MetaString to user-readable string"""
@@ -1101,7 +986,6 @@ class MetaString(Serializeable):
             elif msg == EMessage.APPEND_LOCAL_STRING:
                 if local_index < len(self.local_strings):
                     meta_text, ui32_value = self.local_strings[local_index]
-                    # Simple translation - would need to call text library
                     result.append(f"<localized:{meta_text.value}:{ui32_value}>")
                     local_index += 1
             elif msg == EMessage.APPEND_TEXTID_STRING:
@@ -1115,7 +999,6 @@ class MetaString(Serializeable):
             elif msg == EMessage.APPEND_EOL:
                 result.append('\n')
             elif msg == EMessage.REPLACE_RAW_STRING:
-                # Replace first '%s' with exact string
                 if exact_index < len(self.exact_strings):
                     replacement = self.exact_strings[exact_index]
                     for i in range(len(result)):
@@ -1123,7 +1006,6 @@ class MetaString(Serializeable):
                             result[i] = result[i].replace('%s', replacement, 1)
                     exact_index += 1
             elif msg == EMessage.REPLACE_LOCAL_STRING:
-                # Replace first '%s' with localized string
                 if local_index < len(self.local_strings):
                     meta_text, ui32_value = self.local_strings[local_index]
                     replacement = f"<localized:{meta_text.value}:{ui32_value}>"
@@ -1132,7 +1014,6 @@ class MetaString(Serializeable):
                             result[i] = result[i].replace('%s', replacement, 1)
                     local_index += 1
             elif msg == EMessage.REPLACE_TEXTID_STRING:
-                # Replace first '%s' with text ID
                 if text_id_index < len(self.strings_text_id):
                     replacement = self.strings_text_id[text_id_index]
                     for i in range(len(result)):
@@ -1140,16 +1021,14 @@ class MetaString(Serializeable):
                             result[i] = result[i].replace('%s', replacement, 1)
                     text_id_index += 1
             elif msg == EMessage.REPLACE_NUMBER:
-                # Replace first '%d' with number
                 if number_index < len(self.numbers):
                     replacement = str(self.numbers[number_index])
                     for i in range(len(result)):
                         if '%d' in result[i]:
                             result[i] = result[i].replace('%d', replacement, 1)
-                            break  # Only replace the first occurrence
+                            break
                     number_index += 1
             elif msg == EMessage.REPLACE_POSITIVE_NUMBER:
-                # Replace first '%+d' with number (with + prefix for positive values)
                 if number_index < len(self.numbers):
                     value = self.numbers[number_index]
                     replacement = ('+' if value > 0 else '') + str(value)
@@ -1161,7 +1040,6 @@ class MetaString(Serializeable):
         return ''.join(result)
 
     def empty(self) -> bool:
-        """Returns true if current string is empty"""
         return len(self.message) == 0 and len(self.exact_strings) == 0
 
     def __repr__(self):
@@ -1183,15 +1061,12 @@ class BattleID:
     """Battle identifier wrapper"""
     def __init__(self, value: int = 0):
         self.value = value
-
     def to_int(self) -> int:
         return self.value
-
     def __eq__(self, other):
         if isinstance(other, BattleID):
             return self.value == other.value
         return False
-
     def __repr__(self):
         return f"BattleID({self.value})"
 
@@ -1207,10 +1082,10 @@ class int3:
     y: int = 0
     z: int = 0
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        self.x = deserializer.load_integer()
-        self.y = deserializer.load_integer()
-        self.z = deserializer.load_integer()
+    def serialize(self, h):
+        self.x = h.integer(self.x)
+        self.y = h.integer(self.y)
+        self.z = h.integer(self.z)
 
 
 @dataclass
@@ -1219,8 +1094,8 @@ class BattleHex:
     def __init__(self):
         self.hex: int = 0
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        self.hex = deserializer.load_integer()
+    def serialize(self, h):
+        self.hex = h.integer(self.hex)
 
 
 @dataclass
@@ -1229,21 +1104,36 @@ class BattleHexArray:
     def __init__(self):
         self.hexes: List[int] = []
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        length = deserializer.load_integer()
-        self.hexes = [deserializer.load_integer() for _ in range(length)]
+    def serialize(self, h):
+        self.hexes = h.vector(self.hexes, int)
+
+
+# ============================================================================
+# Bonus subtype/sid variant type lists (shared between serialize methods)
+# ============================================================================
+
+BONUS_SUBTYPE_VARIANT_TYPES = [
+    BonusCustomSubtype, SpellID, CreatureID, PrimarySkill,
+    TerrainId, GameResID, SpellSchool, BonusTypeID,
+]
+
+BONUS_SOURCE_VARIANT_TYPES = [
+    BonusCustomSource, SpellID, CreatureID, ArtifactID,
+    CampaignScenarioID, SecondarySkill, HeroTypeID, Obj,
+    ObjectInstanceID, BuildingTypeUniqueID, BattleField, ArtifactInstanceID,
+]
 
 
 @dataclass
 class Bonus(Serializeable):
     """Bonus effect on an object"""
     type: int = 0
-    subtype: object = None  # Will be one of: BonusCustomSubtype, SpellID, CreatureID, PrimarySkill, TerrainId, GameResID, SpellSchool, BonusTypeID
+    subtype: object = None
     val: int = 0
     val_type: BonusValueType = BonusValueType.ADDITIVE_VALUE
     duration: BonusDuration = BonusDuration.PERMANENT
     source: BonusSource = BonusSource.OTHER
-    sid: object = None  # Will be one of: BonusCustomSource, SpellID, CreatureID, ArtifactID, CampaignScenarioID, SecondarySkill, HeroTypeID, Obj, ObjectInstanceID, BuildingTypeUniqueID, BattleField, ArtifactInstanceID
+    sid: object = None
     description: MetaString = field(default_factory=MetaString)
     custom_icon_path: ImagePath = field(default_factory=ImagePath)
     hidden: bool = False
@@ -1257,92 +1147,33 @@ class Bonus(Serializeable):
     propagationUpdater: IUpdater = field(default_factory=IUpdater)
     target_source_type: BonusSource = BonusSource.OTHER
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        # Complete bonus deserialization matching C++ implementation
-        self.duration = BonusDuration(deserializer.load_integer())  # BonusDuration::Type (2 bytes)
-        self.type = deserializer.load_integer()      # BonusType (2 bytes, but loaded as integer)
+    def serialize(self, h):
+        self.duration = BonusDuration(h.integer(int(self.duration)))
+        self.type = h.integer(self.type)
+        self.subtype = h.variant(self.subtype, BONUS_SUBTYPE_VARIANT_TYPES)
+        self.source = BonusSource(h.integer(int(self.source)))
+        self.val = h.integer(self.val)
+        self.sid = h.variant(self.sid, BONUS_SOURCE_VARIANT_TYPES)
 
-        # Load BonusSubtypeID as VariantIdentifier
-        # VariantIdentifier<BonusCustomSubtype, SpellID, CreatureID, PrimarySkill, TerrainId, GameResID, SpellSchool, BonusTypeID>
-        subtype_variant_types = [
-            BonusCustomSubtype,
-            SpellID,
-            CreatureID,
-            PrimarySkill,
-            TerrainId,
-            GameResID,
-            SpellSchool,
-            BonusTypeID
-        ]
-        self.subtype = deserializer.load_variant(subtype_variant_types)
+        self.description = h.object_(self.description, MetaString)
 
-        self.source = BonusSource(deserializer.load_integer())    # BonusSource (1 byte)
-        self.val = deserializer.load_integer()       # si32 (4 bytes)
+        if h.version >= SerializationVersion.CUSTOM_BONUS_ICONS:
+            self.custom_icon_path = h.object_(self.custom_icon_path, ImagePath)
 
-        # Load BonusSourceID as VariantIdentifier
-        # VariantIdentifier<BonusCustomSource, SpellID, CreatureID, ArtifactID, CampaignScenarioID, SecondarySkill, HeroTypeID, Obj, ObjectInstanceID, BuildingTypeUniqueID, BattleField, ArtifactInstanceID>
-        source_variant_types = [
-            BonusCustomSource,
-            SpellID,
-            CreatureID,
-            ArtifactID,
-            CampaignScenarioID,
-            SecondarySkill,
-            HeroTypeID,
-            Obj,
-            ObjectInstanceID,
-            BuildingTypeUniqueID,
-            BattleField,
-            ArtifactInstanceID
-        ]
-        self.sid = deserializer.load_variant(source_variant_types)
+        if h.version >= SerializationVersion.BONUS_HIDDEN:
+            self.hidden = h.bool_(self.hidden)
 
-        # Load description (MetaString) - complex string with localization support
-        self.description = MetaString()
-        self.description.serialize(deserializer)
+        self.additional_info = h.vector(self.additional_info, int)
+        self.turnsRemain = h.integer(self.turnsRemain)
+        self.val_type = BonusValueType(h.integer(int(self.val_type)))
+        self.stacking = h.string(self.stacking)
+        self.effect_range = BonusLimitEffect(h.integer(int(self.effect_range)))
 
-        # Load customIconPath (ImagePath) - conditional field based on version
-        if deserializer.version >= SerializationVersion.CUSTOM_BONUS_ICONS:
-            self.custom_icon_path = ImagePath()
-            self.custom_icon_path.serialize(deserializer)
-        else:
-            self.custom_icon_path = ImagePath()  # Default empty ImagePath
-
-        # Load hidden (bool) - conditional field based on version
-        if deserializer.version >= SerializationVersion.BONUS_HIDDEN:
-            self.hidden = deserializer.load_bool()
-        else:
-            self.hidden = False
-
-        # Load additional_info (CAddInfo - vector of si32)
-        self.additional_info = deserializer.load_vector(int)
-        
-        self.turnsRemain = deserializer.load_integer()  # si16 (2 bytes, but loaded as integer)
-        self.val_type = BonusValueType(deserializer.load_integer())      # BonusValueType (1 byte)
-        self.stacking = deserializer.load_string()  # String
-        self.effect_range = BonusLimitEffect(deserializer.load_integer())  # BonusLimitEffect (1 byte)
-
-        # Load limiter (TLimiterPtr) - polymorphic pointer type
-        self.limiter = deserializer.load_pointer(Limiter)
-        if self.limiter is not None:
-            logger.debug(f"Bonus.serialize: bonus type={self.type}, limiter type={type(self.limiter).__name__}, value={self.limiter}")
-
-        # Load propagator (TPropagatorPtr) - polymorphic pointer type
-        self.propagator = deserializer.load_pointer(IPropagator)
-        if self.propagator is not None:
-            logger.debug(f"Bonus.serialize: bonus type={self.type}, propagator type={type(self.propagator).__name__}, value={self.propagator}")
-
-        # Load updater (TUpdaterPtr) - polymorphic pointer type
-        self.updater = deserializer.load_pointer(IUpdater)
-        if self.updater is not None:
-            logger.debug(f"Bonus.serialize: bonus type={self.type}, updater type={type(self.updater).__name__}, value={self.updater}")
-
-        # Load propagationUpdater (TUpdaterPtr) - polymorphic pointer type
-        self.propagationUpdater = deserializer.load_pointer(IUpdater)
-        if self.propagationUpdater is not None:
-            logger.debug(f"Bonus.serialize: bonus type={self.type}, propagationUpdater type={type(self.propagationUpdater).__name__}, value={self.propagationUpdater}")
-
-        self.target_source_type = BonusSource(deserializer.load_integer())  # BonusSource (1 byte)
+        self.limiter = h.pointer(self.limiter, Limiter)
+        self.propagator = h.pointer(self.propagator, IPropagator)
+        self.updater = h.pointer(self.updater, IUpdater)
+        self.propagationUpdater = h.pointer(self.propagationUpdater, IUpdater)
+        self.target_source_type = BonusSource(h.integer(int(self.target_source_type)))
 
 
 @dataclass
@@ -1350,14 +1181,8 @@ class BonusList(Serializeable):
     """List of bonus effects"""
     bonuses: List[Bonus] = field(default_factory=list)
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        # Load vector of bonuses manually (Bonus is not polymorphic)
-        length = deserializer.load_integer()
-        self.bonuses = []
-        for _ in range(length):
-            bonus = deserializer.load_pointer(Bonus)
-            # bonus.serialize(deserializer)
-            self.bonuses.append(bonus)
+    def serialize(self, h):
+        self.bonuses = h.vector(self.bonuses, Bonus)
 
 
 # ============================================================================
@@ -1367,8 +1192,7 @@ class BonusList(Serializeable):
 @dataclass
 class SideInBattle(Serializeable):
     """Information about one side in battle"""
-    # GameCallbackHolder base class field
-    cb: int = 0  # IGameInfoCallback pointer
+    cb: int = 0
     color: PlayerColor = field(default_factory=lambda: PlayerColor(255))
     hero_id: ObjectInstanceID = field(default_factory=lambda: ObjectInstanceID(-1))
     army_object_id: ObjectInstanceID = field(default_factory=lambda: ObjectInstanceID(-1))
@@ -1378,60 +1202,26 @@ class SideInBattle(Serializeable):
     initial_mana: int = 0
     additional_mana: int = 0
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        logger.debug(f"SideInBattle.serialize() starting at position {deserializer.position}")
-
-        # Load player color (using wrapper class to handle any integer value)
-        color_int = deserializer.load_integer()
-        self.color = PlayerColor(color_int)
-        logger.debug(f"Loaded PlayerColor: {color_int} at position {deserializer.position}")
-
-        # Load hero ID (ObjectInstanceID wrapper)
-        hero_id_int = deserializer.load_integer()
-        self.hero_id = ObjectInstanceID(hero_id_int)
-        logger.debug(f"Loaded hero_id: {hero_id_int} at position {deserializer.position}")
-
-        # Load army object ID (ObjectInstanceID wrapper)
-        army_id_int = deserializer.load_integer()
-        self.army_object_id = ObjectInstanceID(army_id_int)
-        logger.debug(f"Loaded army_object_id: {army_id_int} at position {deserializer.position}")
-
-        # Load cast spells count
-        self.cast_spells_count = deserializer.load_integer()
-        logger.debug(f"Loaded cast_spells_count: {self.cast_spells_count} at position {deserializer.position}")
-
-        # Load used spells history (vector of SpellID)
-        logger.debug(f"Loading used_spells_history vector at position {deserializer.position}")
-        self.used_spells_history = deserializer.load_vector(int)
-        logger.debug(f"Loaded used_spells_history: {len(self.used_spells_history)} items at position {deserializer.position}")
-
-        # Load enchanter counter
-        self.enchanter_counter = deserializer.load_integer()
-        logger.debug(f"Loaded enchanter_counter: {self.enchanter_counter} at position {deserializer.position}")
-
-        # Load initial mana
-        self.initial_mana = deserializer.load_integer()
-        logger.debug(f"Loaded initial_mana: {self.initial_mana} at position {deserializer.position}")
-
-        # Load additional mana
-        self.additional_mana = deserializer.load_integer()
-        logger.debug(f"Loaded additional_mana: {self.additional_mana} at position {deserializer.position}")
-        logger.debug(f"SideInBattle.serialize() completed at position {deserializer.position}")
+    def serialize(self, h):
+        self.color = PlayerColor(h.integer(self.color.value))
+        self.hero_id = ObjectInstanceID(h.integer(self.hero_id.value))
+        self.army_object_id = ObjectInstanceID(h.integer(self.army_object_id.value))
+        self.cast_spells_count = h.integer(self.cast_spells_count)
+        self.used_spells_history = h.vector(self.used_spells_history, int)
+        self.enchanter_counter = h.integer(self.enchanter_counter)
+        self.initial_mana = h.integer(self.initial_mana)
+        self.additional_mana = h.integer(self.additional_mana)
 
 
 @dataclass
 class SiegeInfo(Serializeable):
     """Siege battle information"""
-    wall_state: Dict[int, int] = field(default_factory=dict)  # Map from EWallPart to EWallState
+    wall_state: Dict[int, int] = field(default_factory=dict)
     gate_state: EGateState = EGateState.CLOSED
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        # Load wall state map (map<int, int>)
-        self.wall_state = deserializer.load_map(int, int)
-
-        # Load gate state
-        gate_state_int = deserializer.load_integer()
-        self.gate_state = EGateState(gate_state_int)
+    def serialize(self, h):
+        self.wall_state = h.map_(self.wall_state, int, int)
+        self.gate_state = EGateState(h.integer(int(self.gate_state)))
 
 
 @dataclass
@@ -1446,20 +1236,14 @@ class CStack(Serializeable):
     alive: bool = True
     bonuses: List[Bonus] = field(default_factory=list)
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        self.id = deserializer.load_integer()
-        type_id_int = deserializer.load_integer()
-        self.type_id = CreatureID(type_id_int)
-        self.count = deserializer.load_integer()
-
-        side_int = deserializer.load_integer()
-        self.side = BattleSide(side_int)
-
-        self.position = BattleHex()
-        self.position.serialize(deserializer)
-
-        self.first_hp_left = deserializer.load_integer()
-        self.alive = deserializer.load_bool()
+    def serialize(self, h):
+        self.id = h.integer(self.id)
+        self.type_id = CreatureID(h.integer(self.type_id.value))
+        self.count = h.integer(self.count)
+        self.side = BattleSide(h.integer(int(self.side)))
+        self.position = h.object_(self.position, BattleHex)
+        self.first_hp_left = h.integer(self.first_hp_left)
+        self.alive = h.bool_(self.alive)
 
 
 @dataclass
@@ -1468,9 +1252,9 @@ class ObstacleChanges(Serializeable):
     obstacle_id: int = 0
     obstacle_type: int = 0
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        self.obstacle_id = deserializer.load_integer()
-        self.obstacle_type = deserializer.load_integer()
+    def serialize(self, h):
+        self.obstacle_id = h.integer(self.obstacle_id)
+        self.obstacle_type = h.integer(self.obstacle_type)
 
 
 @dataclass
@@ -1480,10 +1264,10 @@ class UnitChanges(Serializeable):
     count: int = 0
     hp_left: int = 0
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        self.unit_id = deserializer.load_integer()
-        self.count = deserializer.load_integer()
-        self.hp_left = deserializer.load_integer()
+    def serialize(self, h):
+        self.unit_id = h.integer(self.unit_id)
+        self.count = h.integer(self.count)
+        self.hp_left = h.integer(self.hp_left)
 
 
 # ============================================================================
@@ -1499,15 +1283,12 @@ class CGHeroInstance(Serializeable):
     level: int = 1
     experience: int = 0
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        id_int = deserializer.load_integer()
-        self.id = ObjectInstanceID(id_int)
-        owner_int = deserializer.load_integer()
-        self.temp_owner = PlayerColor(owner_int)
-        self.name = deserializer.load_string()
-        self.level = deserializer.load_integer()
-        self.experience = deserializer.load_integer()
-        logger.debug(f"Loaded CGHeroInstance: id={id_int}, owner={owner_int}")
+    def serialize(self, h):
+        self.id = ObjectInstanceID(h.integer(self.id.value))
+        self.temp_owner = PlayerColor(h.integer(self.temp_owner.value if isinstance(self.temp_owner, PlayerColor) else self.temp_owner))
+        self.name = h.string(self.name)
+        self.level = h.integer(self.level)
+        self.experience = h.integer(self.experience)
 
 
 @dataclass
@@ -1515,10 +1296,8 @@ class CArmedInstance(Serializeable):
     """Armed instance (army)"""
     id: ObjectInstanceID = field(default_factory=lambda: ObjectInstanceID(0))
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        id_int = deserializer.load_integer()
-        self.id = ObjectInstanceID(id_int)
-        logger.debug(f"Loaded CArmedInstance id: {id_int}")
+    def serialize(self, h):
+        self.id = ObjectInstanceID(h.integer(self.id.value))
 
 
 @dataclass
@@ -1527,11 +1306,9 @@ class CGTownInstance(Serializeable):
     id: ObjectInstanceID = field(default_factory=lambda: ObjectInstanceID(0))
     name: str = ""
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        id_int = deserializer.load_integer()
-        self.id = ObjectInstanceID(id_int)
-        self.name = deserializer.load_string()
-        logger.debug(f"Loaded CGTownInstance: id={id_int}, name={self.name}")
+    def serialize(self, h):
+        self.id = ObjectInstanceID(h.integer(self.id.value))
+        self.name = h.string(self.name)
 
 
 # ============================================================================
@@ -1550,133 +1327,54 @@ class BattleInfo(Serializeable):
     stacks: List[CStack] = field(default_factory=list)
     obstacles: List[ObstacleChanges] = field(default_factory=list)
     siege_info: SiegeInfo = field(default_factory=SiegeInfo)
-    battlefield_type: str = ""  # VCMI encodes this as string (e.g., "BA:B")
-    terrain_type: TerrainId = field(default_factory=lambda: TerrainId(0))
+    battlefield_type: str = ""
+    terrain_type: str = ""
     tactics_side: BattleSide = BattleSide.NONE
     tactic_distance: int = 0
-    # CBonusSystemNode fields
     node_type: BonusNodeType = BonusNodeType.UNKNOWN
     exported_bonuses: BonusList = field(default_factory=BonusList)
     replay_allowed: bool = False
 
-    def serialize(self, deserializer: BinaryDeserializer):
+    def serialize(self, h):
         try:
-            # Load battle ID
-            logger.debug(f"Starting BattleInfo deserialization at position {deserializer.position}")
-            self.battle_id = BattleID(deserializer.load_integer())
-            logger.debug(f"After battle_id: position {deserializer.position}")
+            self.battle_id = BattleID(h.integer(self.battle_id.value))
 
-            # Load sides (2 elements - attacker and defender)
-            sides = []
-            for i in range(2):
-                logger.debug(f"Loading side {i} at position {deserializer.position}")
-                side = SideInBattle()
-                side.serialize(deserializer)
-                sides.append(side)
-                logger.debug(f"After side {i}: position {deserializer.position}")
-            self.sides = sides
+            # Sides: fixed array of 2
+            self.sides = h.fixed_array(self.sides, SideInBattle, 2)
 
-            # Load basic battle info
-            logger.debug(f"Loading basic battle info at position {deserializer.position}")
-            self.round = deserializer.load_integer()
-            self.active_stack = deserializer.load_integer()
-            logger.debug(f"After round/active_stack: position {deserializer.position}")
+            self.round = h.integer(self.round)
+            self.active_stack = h.integer(self.active_stack)
+            self.town_id = ObjectInstanceID(h.integer(self.town_id.value))
+            self.tile = h.object_(self.tile, int3)
 
-            # Load town ID (ObjectInstanceID)
-            town_id_int = deserializer.load_integer()
-            self.town_id = ObjectInstanceID(town_id_int)
-            logger.debug(f"After town_id: position {deserializer.position}")
+            # Stacks: vector of non-polymorphic unique_ptrs
+            self.stacks = h.raw_ptr_vector(self.stacks, CStack)
 
-            # Load tile position
-            self.tile = int3()
-            self.tile.serialize(deserializer)
-            logger.debug(f"After tile: position {deserializer.position}")
+            # Obstacles: vector of non-polymorphic shared_ptrs
+            self.obstacles = h.shared_ptr_vector(self.obstacles, ObstacleChanges)
 
-            # Load stacks - these are polymorphic unique_ptr<CStack>
-            stacks_length = deserializer.load_integer()
-            logger.debug(f"Loading {stacks_length} stacks at position {deserializer.position}")
-            self.stacks = []
-            for i in range(stacks_length):
-                # Load unique_ptr using proper pointer handling
-                # unique_ptr format: [null_check:1][pointer_id:compact_int][...object data...]
-                is_null = deserializer.load_bool()
-                if not is_null:
-                    pointer_id = deserializer.load_integer()
+            self.siege_info = h.object_(self.siege_info, SiegeInfo)
+            self.battlefield_type = h.string(self.battlefield_type)
+            self.terrain_type = h.string(self.terrain_type)
+            self.tactics_side = BattleSide(h.integer(int(self.tactics_side)))
+            self.tactic_distance = h.integer(self.tactic_distance)
 
-                    # Check if we've already loaded this pointer
-                    if pointer_id in deserializer.loaded_pointers:
-                        stack = deserializer.loaded_pointers[pointer_id]
-                    else:
-                        # Create and deserialize the stack
-                        stack = CStack()
-                        deserializer.loaded_pointers[pointer_id] = stack
-                        stack.serialize(deserializer)
-                    self.stacks.append(stack)
-            logger.debug(f"After stacks: position {deserializer.position}")
+            # CBonusSystemNode fields
+            self.node_type = BonusNodeType(h.integer(int(self.node_type)))
+            self.exported_bonuses = h.object_(self.exported_bonuses, BonusList)
 
-            # Load obstacles - these are polymorphic shared_ptr<CObstacleInstance>
-            obstacles_length = deserializer.load_integer()
-            logger.debug(f"Loading {obstacles_length} obstacles at position {deserializer.position}")
-            self.obstacles = []
-            for i in range(obstacles_length):
-                # Load shared_ptr using proper pointer handling
-                # shared_ptr format: [null_check:1][pointer_id:compact_int][...object data...]
-                is_null = deserializer.load_bool()
-                if not is_null:
-                    pointer_id = deserializer.load_integer()
+            self.replay_allowed = h.bool_(self.replay_allowed)
 
-                    # Check if we've already loaded this shared pointer
-                    if pointer_id in deserializer.loaded_shared_pointers:
-                        obstacle = deserializer.loaded_shared_pointers[pointer_id]
-                    else:
-                        # Create and deserialize the obstacle
-                        obstacle = ObstacleChanges()
-                        deserializer.loaded_shared_pointers[pointer_id] = obstacle
-                        obstacle.serialize(deserializer)
-                    self.obstacles.append(obstacle)
-            logger.debug(f"After obstacles: position {deserializer.position}")
-
-            # Load siege info
-            logger.debug(f"Loading siege info at position {deserializer.position}")
-            self.siege_info = SiegeInfo()
-            self.siege_info.serialize(deserializer)
-            logger.debug(f"After siege info: position {deserializer.position}")
-
-            # Load battlefield and terrain type
-            # battlefield_type is encoded as string in VCMI (e.g., "BA:B")
-            self.battlefield_type = deserializer.load_string()
-            logger.debug(f"Loaded battlefield_type as string: {self.battlefield_type}")
-
-            # terrain_type_int = deserializer.load_integer()
-            self.terrain_type = deserializer.load_string()  # TerrainId(terrain_type_int)
-
-            logger.debug(f"After battlefield/terrain type: position {deserializer.position}")
-
-            # Load tactics info
-            self.tactics_side = BattleSide(deserializer.load_integer())
-            self.tactic_distance = deserializer.load_integer()
-            logger.debug(f"After tactics: position {deserializer.position}")
-
-            # Load CBonusSystemNode fields (static_cast<CBonusSystemNode&>(*this))
-            logger.debug(f"Loading CBonusSystemNode fields at position {deserializer.position}")
-            self.node_type = BonusNodeType(deserializer.load_integer())
-            self.exported_bonuses = BonusList()
-            self.exported_bonuses.serialize(deserializer)
-            logger.debug(f"After bonuses: position {deserializer.position}")
-
-            # Load replay flag
-            self.replay_allowed = deserializer.load_bool()
-            logger.debug(f"After replay_allowed: position {deserializer.position}")
-            logger.debug(f"BattleInfo deserialization completed at position {deserializer.position}")
-
-            # Debug: Show remaining bytes
-            remaining_bytes = len(deserializer.data) - deserializer.position
-            if remaining_bytes > 0:
-                remaining_data = deserializer.data[deserializer.position:]
-                logger.warning(f"Remaining {remaining_bytes} bytes after BattleInfo deserialization: {remaining_data.hex()}")
+            # Debug: remaining bytes on read
+            if h.is_reading:
+                remaining = len(h.data) - h.position
+                if remaining > 0:
+                    logger.warning(
+                        f"Remaining {remaining} bytes after BattleInfo deserialization"
+                    )
 
         except Exception as e:
-            logger.error(f"Error during BattleInfo deserialization at position {deserializer.position}: {e}")
+            logger.error(f"Error during BattleInfo serialization: {e}")
             raise
 
 
@@ -1700,16 +1398,9 @@ class BattleStart(CPackForClient):
     battle_id: BattleID = field(default_factory=lambda: BattleID(0))
     info: Optional[BattleInfo] = None
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        logger.debug(f"BattleStart.serialize() starting at position {deserializer.position}")
-        self.battle_id = BattleID(deserializer.load_integer())
-        logger.debug(f"After battle_id: position {deserializer.position}")
-
-        # Load BattleInfo (polymorphic unique_ptr)
-        # Use load_object which properly handles pointer deserialization
-        self.info = deserializer.load_pointer(BattleInfo)
-        logger.debug(f"After BattleInfo.deserialize: position {deserializer.position}")
-        logger.debug(f"BattleStart.serialize() completed at position {deserializer.position}")
+    def serialize(self, h):
+        self.battle_id = BattleID(h.integer(self.battle_id.value))
+        self.info = h.pointer(self.info, BattleInfo)
 
 
 @dataclass
@@ -1717,8 +1408,8 @@ class BattleNextRound(CPackForClient):
     """New battle round notification"""
     battle_id: BattleID = field(default_factory=lambda: BattleID(0))
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        self.battle_id = BattleID(deserializer.load_integer())
+    def serialize(self, h):
+        self.battle_id = BattleID(h.integer(self.battle_id.value))
 
 
 @dataclass
@@ -1728,13 +1419,13 @@ class BattleSetActiveStack(CPackForClient):
     stack: int = 0
     reason: BattleUnitTurnReason = BattleUnitTurnReason.TURN_QUEUE
 
-    def serialize(self, deserializer: BinaryDeserializer):
-        self.battle_id = BattleID(deserializer.load_integer())
-        self.stack = deserializer.load_integer()
-        self.reason = BattleUnitTurnReason(deserializer.load_integer())
+    def serialize(self, h):
+        self.battle_id = BattleID(h.integer(self.battle_id.value))
+        self.stack = h.integer(self.stack)
+        self.reason = BattleUnitTurnReason(h.integer(int(self.reason)))
 
 
-# Register pack types after class definition
+# Register pack types
 Serializeable.__registry__[77] = BattleInfo
 Serializeable.__registry__[132] = BattleStart
 Serializeable.__registry__[133] = BattleNextRound
@@ -1757,15 +1448,12 @@ def create_pack_from_type_id(type_id: int) -> Optional[CPack]:
 
 
 # ============================================================================
-# Helper Functions
+# Pack Deserialization / Serialization
 # ============================================================================
 
 def deserialize_pack(data: bytes) -> Optional[CPack]:
     """
     Deserialize a network pack from binary data.
-
-    Args:
-        data: Binary data received from network
 
     Returns:
         The deserialized CPack object, or None if deserialization fails
@@ -1775,20 +1463,15 @@ def deserialize_pack(data: bytes) -> Optional[CPack]:
         return None
 
     try:
-        # Create deserializer with SerializationVersion imported directly
-        from serializer import BinaryDeserializer, SerializationVersion
         deserializer = BinaryDeserializer(data, version=SerializationVersion.CURRENT)
 
-        # Load null check for CPack pointer
+        # Load pack header: null check + pointer_id + type_id
         is_null = deserializer.load_bool()
         if is_null:
             logger.warning("Received null pack")
             return None
 
-        # Load pointer ID
         pointer_id = deserializer.load_integer()
-
-        # Load type ID
         type_id = deserializer.load_encoded_integer()
 
         # Create pack instance
@@ -1797,9 +1480,12 @@ def deserialize_pack(data: bytes) -> Optional[CPack]:
             logger.warning(f"Unknown pack type ID: {type_id}")
             return None
 
+        # Store metadata for round-trip serialization
+        pack_obj._pack_pointer_id = pointer_id
+        pack_obj._pack_type_id = type_id
+
         # Deserialize pack data
-        if pack_obj is not None:
-            pack_obj.serialize(deserializer)
+        pack_obj.serialize(deserializer)
 
         # Check if we consumed all data
         if deserializer.position != len(data):
@@ -1815,12 +1501,50 @@ def deserialize_pack(data: bytes) -> Optional[CPack]:
         return None
 
 
+def serialize_pack(pack_obj: CPack) -> bytes:
+    """
+    Serialize a network pack to binary data.
+
+    Args:
+        pack_obj: The CPack object to serialize
+
+    Returns:
+        The serialized binary data
+    """
+    serializer = BinarySerializer(version=SerializationVersion.CURRENT)
+
+    # Write pack header: null check + pointer_id + type_id
+    serializer.bool_(False)  # not null
+
+    # Use stored metadata from deserialization if available
+    pointer_id = getattr(pack_obj, '_pack_pointer_id', 0)
+    type_id = getattr(pack_obj, '_pack_type_id', None)
+    if type_id is None:
+        # Look up type_id from registry
+        for tid, cls in CPACK_TYPE_REGISTRY.items():
+            if isinstance(pack_obj, cls):
+                type_id = tid
+                break
+        if type_id is None:
+            raise ValueError(f"Unknown pack type: {type(pack_obj).__name__}")
+
+    serializer.integer(pointer_id)
+    serializer.integer(type_id)
+
+    # Account for the pack header pointer in the serializer's counter
+    serializer._next_pointer_id = max(serializer._next_pointer_id, pointer_id + 1)
+
+    # Serialize pack data
+    pack_obj.serialize(serializer)
+
+    return serializer.get_bytes()
+
+
 if __name__ == "__main__":
     # Test deserialization
     from serializer import SerializationVersion
 
     # Example: Deserialize a BattleSetActiveStack pack
-    # Format: [null_flag:1][ptr_id:4][type_id:2][battle_id:4][stack:4][ask_interface:1]
     test_data = bytes([
         0x00,  # Not null
         0x00, 0x00, 0x00, 0x00,  # Pointer ID = 0
@@ -1830,10 +1554,9 @@ if __name__ == "__main__":
         0x01,  # Ask player interface = True
     ])
 
-    pack = deserialize_pack(test_data)
-    if pack:
-        print(f"Pack type: {pack.__class__.__name__}")
-        if isinstance(pack, BattleSetActiveStack):
-            print(f"Battle ID: {pack.battle_id.to_int()}")
-            print(f"Stack ID: {pack.stack}")
-            print(f"Ask interface: {pack.ask_player_interface}")
+    pack_result = deserialize_pack(test_data)
+    if pack_result:
+        print(f"Pack type: {pack_result.__class__.__name__}")
+        if isinstance(pack_result, BattleSetActiveStack):
+            print(f"Battle ID: {pack_result.battle_id.to_int()}")
+            print(f"Stack ID: {pack_result.stack}")

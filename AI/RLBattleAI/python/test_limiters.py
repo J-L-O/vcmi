@@ -50,20 +50,21 @@ def test_terrain_limiter():
     """Test TerrainLimiter deserialization"""
     print("Testing TerrainLimiter...")
 
-    # Limiter: null check (0) + pointer ID (1) + type ID (64) + limiter data
+    # Limiter: null check (0) + pointer ID (1) + type ID (64) + terrain string
     # Type ID 64 is TerrainLimiter
     # Note: 64 requires 2 bytes in compact encoding: 0xC0 0x00
+    # Terrain is serialized as a string (e.g., "sand" -> index 1)
     data = b'\x00'  # null check: False (0)
     data += b'\x01'  # pointer ID: 1 (compact encoding)
     data += b'\xC0\x00'  # type ID: 64 (2-byte compact encoding: 0xC0 0x00)
-    data += b'\x01'  # terrain type: 1 (compact encoding)
+    data += b'\x04' + b'sand'  # terrain type: "sand" (string length 4 + data)
 
     deserializer = BinaryDeserializer(data, SerializationVersion.CURRENT)
     result = deserializer.load_pointer(vcmi_types.Limiter)
 
     assert result is not None
     assert isinstance(result, vcmi_types.TerrainLimiter)
-    assert result.terrainType == 1
+    assert result.terrainType == 1  # "sand" maps to index 1
     print(f"✓ TerrainLimiter test passed: {result}")
     return True
 
