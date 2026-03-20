@@ -449,6 +449,24 @@ class BattleUnitTurnReason(IntEnum):
     AUTOMATIC_ACTION = 4
 
 
+class EActionType(IntEnum):
+    """Battle action types"""
+    NO_ACTION = 0
+    END_TACTIC_PHASE = 1
+    RETREAT = 2
+    SURRENDER = 3
+    HERO_SPELL = 4
+    WALK = 5
+    WAIT = 6
+    DEFEND = 7
+    WALK_AND_ATTACK = 8
+    SHOOT = 9
+    CATAPULT = 10
+    MONSTER_SPELL = 11
+    BAD_MORALE = 12
+    STACK_HEAL = 13
+
+
 class EAlignment(IntEnum):
     """Alignment"""
     ANY = -1
@@ -1091,11 +1109,17 @@ class int3:
 @dataclass
 class BattleHex:
     """Battle field hex position"""
-    def __init__(self):
-        self.hex: int = 0
+    def __init__(self, hex_val: int = 0):
+        self.hex: int = hex_val
 
     def serialize(self, h):
         self.hex = h.integer(self.hex)
+
+    def to_int(self) -> int:
+        return self.hex
+
+    def __repr__(self):
+        return f"BattleHex({self.hex})"
 
 
 @dataclass
@@ -1425,6 +1449,46 @@ class BattleSetActiveStack(CPackForClient):
         self.reason = BattleUnitTurnReason(h.integer(int(self.reason)))
 
 
+@dataclass
+class BattleActionDestination:
+    """Destination info for battle action target"""
+    unit_value: int = -1
+    hex_value: BattleHex = field(default_factory=lambda: BattleHex(-1))
+
+    def serialize(self, h):
+        self.unit_value = h.integer(self.unit_value)
+        self.hex_value = h.object_(self.hex_value, BattleHex)
+
+
+@dataclass
+class BattleAction:
+    """Battle action to be sent to the game"""
+    side: BattleSide = BattleSide.ATTACKER
+    stack_number: int = 0
+    action_type: EActionType = EActionType.DEFEND
+    spell: SpellID = field(default_factory=lambda: SpellID(-1))
+    target: List[BattleActionDestination] = field(default_factory=list)
+
+    def serialize(self, h):
+        self.side = BattleSide(h.integer(int(self.side)))
+        self.stack_number = h.integer(self.stack_number)
+        self.action_type = EActionType(h.integer(int(self.action_type)))
+        self.spell = SpellID(h.integer(self.spell.value))
+        # Serialize vector of destinations
+        length = len(self.target)
+        if h.is_reading:
+            length = h.integer()
+            self.target = []
+            for _ in range(length):
+                dest = BattleActionDestination()
+                dest = h.object_(dest, BattleActionDestination)
+                self.target.append(dest)
+        else:
+            h.integer(length)
+            for dest in self.target:
+                h.object_(dest, BattleActionDestination)
+
+
 # Register pack types
 Serializeable.__registry__[77] = BattleInfo
 Serializeable.__registry__[132] = BattleStart
@@ -1538,6 +1602,67 @@ def serialize_pack(pack_obj: CPack) -> bytes:
     pack_obj.serialize(serializer)
 
     return serializer.get_bytes()
+
+
+def serialize_battle_action(action: BattleAction) -> bytes:
+    """
+    Serialize a BattleAction for sending to the game.
+
+    The action is serialized as raw data (not as a polymorphic pack).
+    Format matches C++ BattleAction serialization.
+
+    Args:
+        action: The BattleAction to serialize
+
+    Returns:
+        The serialized binary data
+    """
+    serializer = BinarySerializer(version=SerializationVersion.CURRENT)
+
+    # Serialize BattleAction fields in order:
+    # side, stackNumber, actionType, spell, target
+    serializer.integer(int(action.side))
+    serializer.integer(action.stack_number)
+    serializer.integer(int(action.action_type))
+    serializer.integer(action.spell.value)
+
+    # target is a vector of DestinationInfo
+    serializer.integer(len(action.target))
+    for dest in action.target:
+        serializer.integer(dest.unit_value)
+        serializer.integer(dest.hex_value.hex)
+
+    return serializer.get_bytes()
+
+
+def deserialize_battle_action(data: bytes) -> BattleAction:
+    """
+    Deserialize a BattleAction from binary data.
+
+    Args:
+        data: The binary data to deserialize
+
+    Returns:
+        The deserialized BattleAction
+    """
+    deserializer = BinaryDeserializer(data, version=SerializationVersion.CURRENT)
+
+    action = BattleAction()
+    action.side = BattleSide(deserializer.integer())
+    action.stack_number = deserializer.integer()
+    action.action_type = EActionType(deserializer.integer())
+    action.spell = SpellID(deserializer.integer())
+
+    # Deserialize target vector
+    target_length = deserializer.integer()
+    action.target = []
+    for _ in range(target_length):
+        dest = BattleActionDestination()
+        dest.unit_value = deserializer.integer()
+        dest.hex_value = BattleHex(deserializer.integer())
+        action.target.append(dest)
+
+    return action
 
 
 if __name__ == "__main__":

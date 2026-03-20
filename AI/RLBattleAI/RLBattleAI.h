@@ -47,7 +47,13 @@ class CRLBattleAI : public CBattleGameInterface, INetworkClientListener
 	bool wasWaitingForRealize;
 	bool wasUnlockingGs;
 
+	// Storage for action received from Python server
+	std::unique_ptr<BattleAction> pendingAction;
+	uint32_t pendingActionStackId;
+
 	void print(const std::string &text) const;
+	BattleAction deserializeAction(const std::vector<std::byte> &message);
+	void executeAction(const BattleID &battleID, const CStack *stack, const BattleAction &action);
 public:
 	CRLBattleAI();
 	~CRLBattleAI();
