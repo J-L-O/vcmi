@@ -11,6 +11,7 @@
 
 #include "../CPlayerState.h"
 #include "../CStack.h"
+#include "../networkPacks/BattleStateForAI.h"
 #include "../battle/BattleInfo.h"
 #include "../battle/CObstacleInstance.h"
 #include "../bonuses/Limiters.h"
@@ -298,6 +299,8 @@ void registerTypes(Serializer &s)
 	s.template registerType<RequestStatistic>(256);
 	s.template registerType<ResponseStatistic>(257);
 	s.template registerType<LobbyQuickLoadGame>(258);
+	s.template registerType<BattleStateForAI>(259);
+	s.template registerType<BattleEndForAI>(260);
 }
 
 VCMI_LIB_NAMESPACE_END

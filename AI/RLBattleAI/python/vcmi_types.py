@@ -1532,12 +1532,315 @@ class BattleSetActiveStack(CPackForClient):
         self.reason = BattleUnitTurnReason(h.integer(int(self.reason)))
 
 
+# ============================================================================
+# Battle State For AI (type ID 259)
+# ============================================================================
+
+class AIStackState(Serializeable):
+    """Flat representation of a single unit's state for RL consumption."""
+
+    def __init__(self):
+        super().__init__()
+        self.id: int = -1
+        self.creature_id: int = -1
+        self.count: int = 0
+        self.first_hp_left: int = 0
+        self.max_hp: int = 0
+        self.total_hp: int = 0
+        self.base_amount: int = 0
+        self.killed: int = 0
+
+        self.attack: int = 0
+        self.defense: int = 0
+        self.ranged_attack: int = 0
+        self.ranged_defense: int = 0
+        self.min_damage: int = 0
+        self.max_damage: int = 0
+        self.min_ranged_damage: int = 0
+        self.max_ranged_damage: int = 0
+        self.speed: int = 0
+        self.initiative: int = 0
+
+        self.position: int = -1       # int16_t
+        self.initial_position: int = -1  # int16_t
+
+        self.side: int = 0            # int8_t
+        self.slot: int = -1           # int8_t
+        self.owner: int = -1          # int8_t
+
+        self.alive: bool = True
+        self.is_shooter: bool = False
+        self.can_shoot: bool = False
+        self.double_wide: bool = False
+        self.defending: bool = False
+        self.moved: bool = False
+        self.waiting: bool = False
+        self.can_move: bool = False
+        self.is_caster: bool = False
+        self.can_cast: bool = False
+        self.is_clone: bool = False
+        self.is_summoned: bool = False
+        self.is_ghost: bool = False
+        self.is_frozen: bool = False
+        self.is_hypnotized: bool = False
+        self.can_retaliate: bool = False
+
+        self.shots_left: int = 0
+        self.shots_total: int = 0
+        self.casts_left: int = 0
+        self.retaliations_left: int = 0
+        self.retaliations_total: int = 0
+
+        self.level: int = 0
+
+    def serialize(self, h):
+        # int32_t fields → h.integer (compact encoded)
+        self.id = h.integer(self.id)
+        self.creature_id = h.integer(self.creature_id)
+        self.count = h.integer(self.count)
+        self.first_hp_left = h.integer(self.first_hp_left)
+        self.max_hp = h.integer(self.max_hp)
+        self.total_hp = h.integer(self.total_hp)  # int64_t, also compact encoded
+        self.base_amount = h.integer(self.base_amount)
+        self.killed = h.integer(self.killed)
+
+        self.attack = h.integer(self.attack)
+        self.defense = h.integer(self.defense)
+        self.ranged_attack = h.integer(self.ranged_attack)
+        self.ranged_defense = h.integer(self.ranged_defense)
+        self.min_damage = h.integer(self.min_damage)
+        self.max_damage = h.integer(self.max_damage)
+        self.min_ranged_damage = h.integer(self.min_ranged_damage)
+        self.max_ranged_damage = h.integer(self.max_ranged_damage)
+        self.speed = h.integer(self.speed)
+        self.initiative = h.integer(self.initiative)
+
+        # int16_t → compact encoded (NOT raw 2-byte)
+        self.position = h.integer(self.position)
+        self.initial_position = h.integer(self.initial_position)
+
+        # int8_t → raw 1-byte
+        self.side = h.int8(self.side)
+        self.slot = h.int8(self.slot)
+        self.owner = h.int8(self.owner)
+
+        # bools → raw 1-byte each
+        self.alive = h.bool_(self.alive)
+        self.is_shooter = h.bool_(self.is_shooter)
+        self.can_shoot = h.bool_(self.can_shoot)
+        self.double_wide = h.bool_(self.double_wide)
+        self.defending = h.bool_(self.defending)
+        self.moved = h.bool_(self.moved)
+        self.waiting = h.bool_(self.waiting)
+        self.can_move = h.bool_(self.can_move)
+        self.is_caster = h.bool_(self.is_caster)
+        self.can_cast = h.bool_(self.can_cast)
+        self.is_clone = h.bool_(self.is_clone)
+        self.is_summoned = h.bool_(self.is_summoned)
+        self.is_ghost = h.bool_(self.is_ghost)
+        self.is_frozen = h.bool_(self.is_frozen)
+        self.is_hypnotized = h.bool_(self.is_hypnotized)
+        self.can_retaliate = h.bool_(self.can_retaliate)
+
+        # Resource ints (int32_t → compact)
+        self.shots_left = h.integer(self.shots_left)
+        self.shots_total = h.integer(self.shots_total)
+        self.casts_left = h.integer(self.casts_left)
+        self.retaliations_left = h.integer(self.retaliations_left)
+        self.retaliations_total = h.integer(self.retaliations_total)
+
+        self.level = h.integer(self.level)
+
+    def __repr__(self):
+        return (f"AIStackState(id={self.id}, creature={self.creature_id}, "
+                f"count={self.count}, pos={self.position}, "
+                f"side={'ATK' if self.side == 0 else 'DEF'}, "
+                f"alive={self.alive})")
+
+
+class AIObstacleState(Serializeable):
+    """Flat representation of a battlefield obstacle."""
+
+    def __init__(self):
+        super().__init__()
+        self.id: int = -1
+        self.obstacle_id: int = -1
+        self.position: int = -1     # int16_t
+        self.obstacle_type: int = 0  # int8_t
+        self.blocked_hexes: List[int] = []  # vector<int16_t>
+        self.turns_remaining: int = 0
+        self.spell_power: int = 0
+        self.minimal_damage: int = 0
+        self.caster_side: int = 0   # int8_t
+        self.passable: bool = False
+        self.trap: bool = False
+
+    def serialize(self, h):
+        self.id = h.integer(self.id)
+        self.obstacle_id = h.integer(self.obstacle_id)
+        self.position = h.integer(self.position)   # int16_t → compact
+        self.obstacle_type = h.int8(self.obstacle_type)  # int8_t → raw
+
+        # vector<int16_t> → length + compact ints
+        length = h.integer(len(self.blocked_hexes))
+        if h.is_reading:
+            self.blocked_hexes = [h.integer(0) for _ in range(length)]
+        else:
+            for val in self.blocked_hexes:
+                h.integer(val)
+
+        self.turns_remaining = h.integer(self.turns_remaining)
+        self.spell_power = h.integer(self.spell_power)
+        self.minimal_damage = h.integer(self.minimal_damage)
+        self.caster_side = h.int8(self.caster_side)  # int8_t → raw
+        self.passable = h.bool_(self.passable)
+        self.trap = h.bool_(self.trap)
+
+
+class AISideState(Serializeable):
+    """Per-side summary (attacker or defender)."""
+
+    def __init__(self):
+        super().__init__()
+        self.color: int = -1        # int8_t
+        self.has_hero: bool = False
+        self.hero_id: int = -1
+        self.cast_spells_count: int = 0
+        self.mana: int = 0
+        self.enchanter_counter: int = 0
+
+    def serialize(self, h):
+        self.color = h.int8(self.color)  # int8_t → raw
+        self.has_hero = h.bool_(self.has_hero)
+        self.hero_id = h.integer(self.hero_id)
+        self.cast_spells_count = h.integer(self.cast_spells_count)
+        self.mana = h.integer(self.mana)
+        self.enchanter_counter = h.integer(self.enchanter_counter)
+
+
+class AIWallState(Serializeable):
+    """Wall state for siege battles."""
+
+    def __init__(self):
+        super().__init__()
+        self.wall_parts: List[int] = []  # vector<int8_t>
+        self.gate_state: int = 0         # int8_t
+
+    def serialize(self, h):
+        # vector<int8_t> → length (compact) + raw bytes
+        length = h.integer(len(self.wall_parts))
+        if h.is_reading:
+            self.wall_parts = [h.int8(0) for _ in range(length)]
+        else:
+            for val in self.wall_parts:
+                h.int8(val)
+        self.gate_state = h.int8(self.gate_state)
+
+
+class BattleStateForAI(CPackForClient):
+    """Complete battle state snapshot for RL decision-making (type ID 259)."""
+
+    def __init__(self):
+        super().__init__()
+        self.battle_id: int = -1
+        self.round: int = 0
+        self.active_stack_id: int = -1
+        self.active_side: int = 0      # int8_t
+
+        self.terrain_type: int = 0
+        self.battlefield_type: int = 0
+        self.is_siege: bool = False
+
+        self.attacker: AISideState = AISideState()
+        self.defender: AISideState = AISideState()
+        self.walls: AIWallState = AIWallState()
+
+        self.stacks: List[AIStackState] = []
+        self.obstacles: List[AIObstacleState] = []
+        self.reachable_hexes: List[int] = []       # vector<int16_t>
+        self.attackable_targets: List[int] = []     # vector<int32_t>
+
+    def serialize(self, h):
+        self.battle_id = h.integer(self.battle_id)
+        self.round = h.integer(self.round)
+        self.active_stack_id = h.integer(self.active_stack_id)
+        self.active_side = h.int8(self.active_side)
+
+        self.terrain_type = h.integer(self.terrain_type)
+        self.battlefield_type = h.integer(self.battlefield_type)
+        self.is_siege = h.bool_(self.is_siege)
+
+        self.attacker = h.object_(self.attacker, AISideState)
+        self.defender = h.object_(self.defender, AISideState)
+        self.walls = h.object_(self.walls, AIWallState)
+
+        # vector<AIStackState> - inline objects
+        stack_count = h.integer(len(self.stacks))
+        if h.is_reading:
+            self.stacks = [h.object_(None, AIStackState) for _ in range(stack_count)]
+        else:
+            for s in self.stacks:
+                h.object_(s, AIStackState)
+
+        # vector<AIObstacleState> - inline objects
+        obs_count = h.integer(len(self.obstacles))
+        if h.is_reading:
+            self.obstacles = [h.object_(None, AIObstacleState) for _ in range(obs_count)]
+        else:
+            for o in self.obstacles:
+                h.object_(o, AIObstacleState)
+
+        # vector<int16_t> → compact ints
+        hex_count = h.integer(len(self.reachable_hexes))
+        if h.is_reading:
+            self.reachable_hexes = [h.integer(0) for _ in range(hex_count)]
+        else:
+            for val in self.reachable_hexes:
+                h.integer(val)
+
+        # vector<int32_t> → compact ints
+        target_count = h.integer(len(self.attackable_targets))
+        if h.is_reading:
+            self.attackable_targets = [h.integer(0) for _ in range(target_count)]
+        else:
+            for val in self.attackable_targets:
+                h.integer(val)
+
+
+class BattleEndForAI(CPackForClient):
+    """Sent by RLBattleAI when a battle ends (type ID 260)."""
+
+    def __init__(self):
+        super().__init__()
+        self.battle_id: int = -1
+        self.winner: int = -1     # int8_t: 0=attacker, 1=defender, -1=none
+        self.result: int = 0      # int8_t: 0=NORMAL, 1=ESCAPE, 2=SURRENDER
+        self.our_side: int = 0    # int8_t: which side we were
+
+    def serialize(self, h):
+        self.battle_id = h.integer(self.battle_id)
+        self.winner = h.int8(self.winner)
+        self.result = h.int8(self.result)
+        self.our_side = h.int8(self.our_side)
+
+    @property
+    def we_won(self) -> bool:
+        return self.winner == self.our_side
+
+    def __repr__(self):
+        side_name = 'ATK' if self.our_side == 0 else 'DEF'
+        outcome = 'WON' if self.we_won else 'LOST'
+        return f"BattleEndForAI(battle={self.battle_id}, {side_name} {outcome})"
+
+
 # Register pack types
 Serializeable.__registry__[77] = BattleInfo
 Serializeable.__registry__[132] = BattleStart
 Serializeable.__registry__[133] = BattleNextRound
 Serializeable.__registry__[134] = BattleSetActiveStack
 Serializeable.__registry__[198] = MakeAction
+Serializeable.__registry__[259] = BattleStateForAI
+Serializeable.__registry__[260] = BattleEndForAI
 
 # Type ID registry for polymorphic deserialization
 CPACK_TYPE_REGISTRY = {
@@ -1545,6 +1848,8 @@ CPACK_TYPE_REGISTRY = {
     133: BattleNextRound,
     134: BattleSetActiveStack,
     198: MakeAction,
+    259: BattleStateForAI,
+    260: BattleEndForAI,
 }
 
 

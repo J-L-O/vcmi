@@ -16,11 +16,12 @@
 #include "lib/CThreadHelper.h"
 #include "lib/CStack.h"
 #include "lib/battle/BattleAction.h"
-#include "lib/battle/BattleInfo.h"
-#include "lib/battle/BattleLayout.h"
+#include "lib/battle/CBattleInfoCallback.h"
 #include "lib/battle/CPlayerBattleCallback.h"
+#include "lib/battle/CObstacleInstance.h"
 #include "lib/network/NetworkHandler.h"
 #include "lib/networkPacks/PacksForClientBattle.h"
+#include "lib/networkPacks/BattleStateForAI.h"
 #include "callback/CBattleCallback.h"
 #include "mapObjects/CGTownInstance.h"
 #include "vcmi/Environment.h"
@@ -36,9 +37,15 @@ CRLBattleAI::CRLBattleAI()
 {
 	std::string hostname = "127.0.0.1";
 	uint16_t port = 65432;
+
+	if (const char * envPort = std::getenv("VCMI_RL_PORT"))
+	{
+		port = static_cast<uint16_t>(std::stoi(envPort));
+	}
+
 	networkHandler->connectToRemote(*this, hostname, port);
 
-	print("created");
+	print("created, connecting to port " + std::to_string(port));
 }
 
 CRLBattleAI::~CRLBattleAI()
@@ -112,27 +119,165 @@ void CRLBattleAI::yourTacticPhase(const BattleID & battleID, int distance)
 
 void CRLBattleAI::activeStack(const BattleID & battleID, const CStack * stack)
 {
-	//boost::this_thread::sleep_for(boost::chrono::seconds(2));
 	print("activeStack called for " + stack->nodeName());
 
-	BattleStart pack;
-	pack.battleID = battleID;
+	auto battle = cb->getBattle(battleID);
 
-	int3 tile = cb->getBattle(battleID)->getBattle()->getLocation();
-	TerrainId terrain = cb->getBattle(battleID)->battleTerrainType();
-	BattleField battlefieldType = cb->getBattle(battleID)->getBattle()->getBattlefieldType();
-	BattleLayout layout = cb->getBattle(battleID)->getBattle()->getLayout();
-	const CGTownInstance *town = cb->getBattle(battleID)->battleGetDefendedTown();
+	BattleStateForAI pack;
+	pack.battleId = battleID.getNum();
+	pack.round = currentRound;
+	pack.activeStackId = stack->unitId();
+	pack.activeSide = static_cast<int8_t>(stack->unitSide());
 
-	const CArmedInstance *army1 = cb->getBattle(battleID)->getBattle()->getSideArmy(BattleSide::ATTACKER);
-	const CArmedInstance *army2 = cb->getBattle(battleID)->getBattle()->getSideArmy(BattleSide::DEFENDER);
-	BattleSideArray<const CArmedInstance *> armies{army1, army2};
+	// Battlefield metadata
+	pack.terrainType = static_cast<int32_t>(battle->battleTerrainType());
+	pack.battlefieldType = static_cast<int32_t>(battle->getBattle()->getBattlefieldType());
 
-	const CGHeroInstance *hero1 = cb->getBattle(battleID)->getBattle()->getSideHero(BattleSide::ATTACKER);
-	const CGHeroInstance *hero2 = cb->getBattle(battleID)->getBattle()->getSideHero(BattleSide::DEFENDER);
-	BattleSideArray<const CGHeroInstance*>heroes{hero1, hero2};
+	const CGTownInstance * town = battle->battleGetDefendedTown();
+	pack.isSiege = (town != nullptr);
 
-	pack.info = BattleInfo::setupBattle(const_cast<IGameInfoCallback*>(env->game()), tile, terrain, battlefieldType, armies, heroes, layout, town);
+	// Sides
+	auto fillSide = [&](AISideState & out, BattleSide side)
+	{
+		out.color = static_cast<int8_t>(battle->getBattle()->getSidePlayer(side).getNum());
+		out.hasHero = battle->battleHasHero(side);
+		const auto * hero = battle->getBattle()->getSideHero(side);
+		out.heroId = hero ? hero->id.getNum() : -1;
+		out.castSpellsCount = battle->getBattle()->getCastSpells(side);
+		out.mana = hero ? hero->mana : 0;
+		out.enchanterCounter = battle->getBattle()->getEnchanterCounter(side);
+	};
+	fillSide(pack.attacker, BattleSide::ATTACKER);
+	fillSide(pack.defender, BattleSide::DEFENDER);
+
+	// Wall state (siege)
+	if (pack.isSiege)
+	{
+		pack.walls.wallParts.resize(static_cast<int>(EWallPart::PARTS_COUNT), static_cast<int8_t>(EWallState::NONE));
+		for (int i = 0; i < static_cast<int>(EWallPart::PARTS_COUNT); ++i)
+		{
+			pack.walls.wallParts[i] = static_cast<int8_t>(
+				battle->getBattle()->getWallState(static_cast<EWallPart>(i)));
+		}
+		pack.walls.gateState = static_cast<int8_t>(battle->getBattle()->getGateState());
+	}
+
+	// Stacks
+	auto allStacks = battle->battleGetAllStacks(true); // include turrets
+	for (const CStack * s : allStacks)
+	{
+		AIStackState ss;
+		ss.id = s->unitId();
+		ss.creatureId = s->unitType() ? s->unitType()->getId().getNum() : -1;
+		ss.count = s->getCount();
+		ss.firstHPLeft = s->getFirstHPleft();
+		ss.maxHP = s->getMaxHealth();
+		ss.totalHP = s->getAvailableHealth();
+		ss.baseAmount = s->unitBaseAmount();
+		ss.killed = s->getKilled();
+
+		ss.attack = s->getAttack(false);
+		ss.defense = s->getDefense(false);
+		ss.rangedAttack = s->getAttack(true);
+		ss.rangedDefense = s->getDefense(true);
+		ss.minDamage = s->getMinDamage(false);
+		ss.maxDamage = s->getMaxDamage(false);
+		ss.minRangedDamage = s->getMinDamage(true);
+		ss.maxRangedDamage = s->getMaxDamage(true);
+		ss.speed = s->getMovementRange();
+		ss.initiative = s->getInitiative();
+
+		ss.position = s->getPosition().toInt();
+		ss.initialPosition = s->initialPosition.toInt();
+
+		ss.side = static_cast<int8_t>(s->unitSide());
+		ss.slot = static_cast<int8_t>(s->unitSlot().getNum());
+		ss.owner = static_cast<int8_t>(s->unitOwner().getNum());
+
+		ss.alive = s->alive();
+		ss.isShooter = s->isShooter();
+		ss.canShoot = s->canShoot();
+		ss.doubleWide = s->doubleWide();
+		ss.defending = s->defended();
+		ss.moved = s->moved();
+		ss.waiting = s->waited();
+		ss.canMove = s->canMove();
+		ss.isCaster = s->isCaster();
+		ss.canCast = s->canCast();
+		ss.isClone = s->isClone();
+		ss.isSummoned = s->summoned;
+		ss.isGhost = s->isGhost();
+		ss.isFrozen = s->isFrozen();
+		ss.isHypnotized = s->isHypnotized();
+		ss.canRetaliate = s->ableToRetaliate();
+
+		ss.shotsLeft = s->shots.available();
+		ss.shotsTotal = s->shots.total();
+		ss.castsLeft = s->casts.available();
+		ss.retaliationsLeft = s->counterAttacks.available();
+		ss.retaliationsTotal = s->counterAttacks.total();
+
+		ss.level = s->unitType() ? s->unitType()->getLevel() : 0;
+
+		pack.stacks.push_back(ss);
+	}
+
+	// Obstacles
+	auto allObstacles = battle->getBattle()->getAllObstacles();
+	for (const auto & obs : allObstacles)
+	{
+		AIObstacleState os;
+		os.id = obs->uniqueID;
+		os.obstacleId = obs->ID;
+		os.position = obs->pos.toInt();
+		os.obstacleType = static_cast<int8_t>(obs->obstacleType);
+
+		auto blockedTiles = obs->getBlockedTiles();
+		for (auto hex : blockedTiles)
+			os.blockedHexes.push_back(hex.toInt());
+
+		// Spell-created obstacle extra data
+		if (auto * spellObs = dynamic_cast<const SpellCreatedObstacle *>(obs.get()))
+		{
+			os.turnsRemaining = spellObs->turnsRemaining;
+			os.spellPower = spellObs->casterSpellPower;
+			os.minimalDamage = spellObs->minimalDamage;
+			os.casterSide = static_cast<int8_t>(spellObs->casterSide);
+			os.passable = spellObs->passable;
+			os.trap = spellObs->trap;
+		}
+
+		pack.obstacles.push_back(os);
+	}
+
+	// Reachable hexes for the active stack
+	auto reachableHexes = battle->battleGetAvailableHexes(stack, true);
+	for (auto hex : reachableHexes)
+		pack.reachableHexes.push_back(hex.toInt());
+
+	// Attackable targets: for each enemy alive stack, find attack hexes
+	for (const CStack * enemy : allStacks)
+	{
+		if (!enemy->alive() || enemy->unitSide() == stack->unitSide())
+			continue;
+
+		if (stack->canShoot())
+		{
+			// Ranged: can attack this target from current position
+			pack.attackableTargets.push_back(enemy->unitId());
+			pack.attackableTargets.push_back(stack->getPosition().toInt());
+		}
+		else
+		{
+			// Melee: find hexes from which we can attack this enemy
+			auto attackHexes = CStack::meleeAttackHexes(stack, enemy);
+			for (auto hex : attackHexes)
+			{
+				pack.attackableTargets.push_back(enemy->unitId());
+				pack.attackableTargets.push_back(hex.toInt());
+			}
+		}
+	}
 
 	logicConnection->sendPack(pack);
 
@@ -140,7 +285,7 @@ void CRLBattleAI::activeStack(const BattleID & battleID, const CStack * stack)
 		std::unique_lock lk(actionMtx);
 		actionCV.wait(lk, [this]{ return actionReady; });
 
-		// Override stack identity from the actual stack - Python may not have this info
+		// Override stack identity from the actual stack
 		nextAction.stackNumber = stack->unitId();
 		nextAction.side = stack->unitSide();
 		print("Executing action type=" + std::to_string(static_cast<int>(nextAction.actionType))
@@ -163,7 +308,18 @@ void CRLBattleAI::battleStacksAttacked(const BattleID & battleID, const std::vec
 
 void CRLBattleAI::battleEnd(const BattleID & battleID, const BattleResult *br, QueryID queryID)
 {
-	print("battleEnd called");
+	print("battleEnd called, winner=" + std::to_string(static_cast<int>(br->winner))
+		+ " result=" + std::to_string(static_cast<int>(br->result)));
+
+	if (logicConnection)
+	{
+		BattleEndForAI pack;
+		pack.battleId = battleID.getNum();
+		pack.winner = static_cast<int8_t>(br->winner);
+		pack.result = static_cast<int8_t>(br->result);
+		pack.ourSide = static_cast<int8_t>(side);
+		logicConnection->sendPack(pack);
+	}
 }
 
 // void CRLBattleAI::battleResultsApplied()
@@ -178,7 +334,8 @@ void CRLBattleAI::battleNewRoundFirst(const BattleID & battleID)
 
 void CRLBattleAI::battleNewRound(const BattleID & battleID)
 {
-	print("battleNewRound called");
+	currentRound++;
+	print("battleNewRound called, round=" + std::to_string(currentRound));
 }
 
 void CRLBattleAI::battleStackMoved(const BattleID & battleID, const CStack * stack, const BattleHexArray & dest, int distance, bool teleport)
@@ -200,6 +357,7 @@ void CRLBattleAI::battleStart(const BattleID & battleID, const CCreatureSet *arm
 {
 	print("battleStart called");
 	side = Side;
+	currentRound = 0;
 }
 
 void CRLBattleAI::battleCatapultAttacked(const BattleID & battleID, const CatapultAttack & ca)

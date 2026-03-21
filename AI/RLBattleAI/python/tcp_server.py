@@ -12,8 +12,8 @@ import logging
 from typing import Optional, Callable, List, Dict
 from serializer import pack as print_pack
 from vcmi_types import (
-    deserialize_pack, serialize_pack, CPack, BattleStart,
-    MakeAction, BattleAction, EActionType, BattleSide,
+    deserialize_pack, serialize_pack, CPack, BattleStart, BattleStateForAI,
+    BattleEndForAI, MakeAction, BattleAction, EActionType, BattleSide,
     deserialize_pack_with_strings,
 )
 
@@ -127,6 +127,15 @@ class BattleAIHandler:
     def handle_set_active_stack(self, battle_id: int, stack_id: int, client_id: str = "unknown") -> None:
         """Handle active stack change event"""
         logger.info(f"[{client_id}] Active stack changed - Battle: {battle_id}, Stack: {stack_id}")
+
+    def handle_battle_state(self, state: BattleStateForAI, client_id: str = "unknown") -> None:
+        """Handle full battle state snapshot for AI decision"""
+        logger.info(f"[{client_id}] Battle state: battle={state.battle_id}, "
+                     f"active_stack={state.active_stack_id}, stacks={len(state.stacks)}")
+
+    def handle_battle_end(self, end: BattleEndForAI, client_id: str = "unknown") -> None:
+        """Handle battle end notification"""
+        logger.info(f"[{client_id}] Battle ended: {end}")
 
     def handle_unknown_pack(self, pack: CPack, client_id: str = "unknown") -> None:
         """Handle unknown pack types"""
@@ -264,7 +273,15 @@ class VCMITCPServer:
             pack: The deserialized pack
             client_id: The client identifier for logging
         """
-        if isinstance(pack, BattleStart):
+        if isinstance(pack, BattleStateForAI):
+            logger.info(f"[{client_id}] BattleStateForAI received")
+            self.handler.handle_battle_state(pack, client_id)
+
+        elif isinstance(pack, BattleEndForAI):
+            logger.info(f"[{client_id}] BattleEndForAI received: {pack}")
+            self.handler.handle_battle_end(pack, client_id)
+
+        elif isinstance(pack, BattleStart):
             battle_id = pack.battle_id.to_int()
             logger.info(f"[{client_id}] BattleStart received")
             self.handler.handle_battle_start(battle_id, pack, client_id)

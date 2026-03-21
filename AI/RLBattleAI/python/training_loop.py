@@ -9,8 +9,8 @@ active stack as a placeholder for a real RL policy.
 import logging
 from tcp_server import VCMITCPServer, BattleAIHandler
 from vcmi_types import (
-    BattleStart, BattleAction, MakeAction, EActionType, BattleSide,
-    serialize_pack, BattleID,
+    BattleStart, BattleStateForAI, BattleAction, MakeAction,
+    EActionType, BattleSide, serialize_pack, BattleID,
 )
 
 logging.basicConfig(
@@ -29,52 +29,48 @@ class RLBattleHandler(BattleAIHandler):
     def __init__(self, server: VCMITCPServer):
         self.server = server
 
-    def handle_battle_start(self, battle_id: int, battle_info: BattleStart, client_id: str = "unknown") -> None:
-        logger.info(f"[{client_id}] Battle started, ID={battle_id}")
+    def handle_battle_state(self, state: BattleStateForAI, client_id: str = "unknown") -> None:
+        logger.info(f"[{client_id}] BattleStateForAI: battle={state.battle_id}, "
+                     f"round={state.round}, active_stack={state.active_stack_id}, "
+                     f"stacks={len(state.stacks)}, obstacles={len(state.obstacles)}, "
+                     f"reachable={len(state.reachable_hexes)}")
 
-        if battle_info.info:
-            info = battle_info.info
-            logger.info(f"[{client_id}]   Round: {info.round}")
-            logger.info(f"[{client_id}]   Active stack: {info.active_stack}")
-            logger.info(f"[{client_id}]   Stacks: {len(info.stacks)}")
+        for s in state.stacks:
+            logger.info(
+                f"[{client_id}]   Stack {s.id}: creature={s.creature_id}, "
+                f"count={s.count}, pos={s.position}, "
+                f"side={'ATK' if s.side == 0 else 'DEF'}, "
+                f"alive={s.alive}, hp={s.first_hp_left}/{s.max_hp}, "
+                f"atk={s.attack}, def={s.defense}, spd={s.speed}"
+            )
 
-            for stack in info.stacks:
-                logger.info(
-                    f"[{client_id}]     Stack {stack.id}: "
-                    f"count={stack.count}, side={stack.side.name}, "
-                    f"pos={stack.position.hex}, hp={stack.first_hp_left}"
-                )
+        active_side = BattleSide(state.active_side)
 
-            # Find the active stack to determine side
-            active_stack_id = info.active_stack
-            active_side = BattleSide.ATTACKER
-            for stack in info.stacks:
-                if stack.id == active_stack_id:
-                    active_side = stack.side
-                    break
+        # Pick action (placeholder: always DEFEND)
+        action = self._select_action(state, state.active_stack_id, active_side)
 
-            # Pick action (placeholder: always DEFEND)
-            action = self._select_action(battle_id, info, active_stack_id, active_side)
+        # Build and send MakeAction pack
+        pack = MakeAction()
+        pack.ba = action
+        pack.battle_id = BattleID(state.battle_id)
+        pack._pack_pointer_id = 0
+        pack._pack_type_id = 198
 
-            # Build and send MakeAction pack
-            pack = MakeAction()
-            pack.ba = action
-            pack.battle_id = BattleID(battle_id)
-            pack._pack_pointer_id = 0
-            pack._pack_type_id = 198
+        data = serialize_pack(pack)
+        logger.info(f"[{client_id}] Sending action: {action.action_type.name} "
+                    f"for stack {action.stack_number} ({len(data)} bytes)")
+        self.server.send_response(data, client_id)
 
-            data = serialize_pack(pack)
-            logger.info(f"[{client_id}] Sending action: {action.action_type.name} "
-                        f"for stack {action.stack_number} ({len(data)} bytes)")
-            self.server.send_response(data, client_id)
-
-    def _select_action(self, battle_id, battle_info, stack_id, side):
+    def _select_action(self, state, stack_id, side):
         """
         Select an action for the active stack.
         This is the hook point for a real RL policy.
         Currently always returns DEFEND.
         """
         return BattleAction.make_defend(stack_id, side)
+
+    def handle_battle_start(self, battle_id: int, battle_info: BattleStart, client_id: str = "unknown") -> None:
+        logger.info(f"[{client_id}] BattleStart received (legacy), ID={battle_id}")
 
     def handle_battle_next_round(self, battle_id: int, client_id: str = "unknown") -> None:
         logger.info(f"[{client_id}] Next round, battle={battle_id}")

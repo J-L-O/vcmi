@@ -48,6 +48,7 @@ class CRLBattleAI : public CBattleGameInterface, INetworkClientListener
 
 	bool wasWaitingForRealize;
 	bool wasUnlockingGs;
+	int32_t currentRound = 0;
 
 	void print(const std::string &text) const;
 public:
