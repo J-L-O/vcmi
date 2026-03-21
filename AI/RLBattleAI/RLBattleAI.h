@@ -17,6 +17,7 @@
 #include "callback/CBattleGameInterface.h"
 #include "network/NetworkConnection.h"
 #include "lib/networkPacks/PacksForClient.h"
+#include "lib/networkPacks/PacksForServer.h"
 #include "serializer/GameConnection.h"
 
 
@@ -26,14 +27,6 @@ class CRLBattleAI : public CBattleGameInterface, INetworkClientListener
 	std::shared_ptr<CBattleCallback> cb;
 	std::shared_ptr<Environment> env;
 
-	// boost::asio::io_context io_context;
-
-	// boost::asio::ip::tcp::resolver resolver;
-	// boost::asio::ip::tcp::resolver::results_type endpoints;
-	// boost::asio::ip::tcp::socket socket;
-
-	// std::shared_ptr<NetworkContext> context;
-	// std::shared_ptr<NetworkSocket> socket;
 	std::shared_ptr<INetworkConnection> networkConnection;
 	std::shared_ptr<GameConnection> logicConnection;
 	std::unique_ptr<INetworkHandler> networkHandler;
@@ -43,6 +36,7 @@ class CRLBattleAI : public CBattleGameInterface, INetworkClientListener
 	bool actionReady;
 	std::mutex actionMtx;
 	std::condition_variable actionCV;
+	BattleAction nextAction;
 
 	bool wasWaitingForRealize;
 	bool wasUnlockingGs;

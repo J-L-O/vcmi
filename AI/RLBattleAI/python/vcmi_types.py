@@ -1071,6 +1071,24 @@ class BattleID:
         return f"BattleID({self.value})"
 
 
+class EActionType(IntEnum):
+    """Battle action types"""
+    NO_ACTION = 0
+    END_TACTIC_PHASE = 1
+    RETREAT = 2
+    SURRENDER = 3
+    HERO_SPELL = 4
+    WALK = 5
+    WAIT = 6
+    DEFEND = 7
+    WALK_AND_ATTACK = 8
+    SHOOT = 9
+    CATAPULT = 10
+    MONSTER_SPELL = 11
+    BAD_MORALE = 12
+    STACK_HEAL = 13
+
+
 # ============================================================================
 # Basic Data Structures
 # ============================================================================
@@ -1379,6 +1397,62 @@ class BattleInfo(Serializeable):
 
 
 # ============================================================================
+# Battle Action Types
+# ============================================================================
+
+@dataclass
+class BattleActionDestination(Serializeable):
+    """Destination info for battle action targeting"""
+    unit_value: int = -1
+    hex_value: int = 0
+
+    def serialize(self, h):
+        self.unit_value = h.integer(self.unit_value)
+        self.hex_value = h.integer(self.hex_value)
+
+
+def _encode_spell_id(spell_value: int, h) -> str:
+    """Encode SpellID for serialization (matches C++ SpellID::encode)"""
+    if spell_value == -1:
+        return h.string("")
+    else:
+        return h.string(f"spell_{spell_value}")
+
+
+def _decode_spell_id(h) -> int:
+    """Decode SpellID from deserialization"""
+    s = h.string("")
+    if s == "" or s == "":
+        return -1
+    elif s == "preset":
+        return -2
+    elif s == "spellbook_preset":
+        return -3
+    else:
+        return int(s.replace("spell_", "")) if s.startswith("spell_") else -1
+
+
+@dataclass
+class BattleAction(Serializeable):
+    """Battle action sent from AI to game"""
+    side: BattleSide = BattleSide.NONE
+    stack_number: int = 0
+    action_type: EActionType = EActionType.NO_ACTION
+    spell: int = -1
+    target: List[BattleActionDestination] = field(default_factory=list)
+
+    def serialize(self, h):
+        self.side = BattleSide(h.integer(int(self.side)))
+        self.stack_number = h.integer(self.stack_number)
+        self.action_type = EActionType(h.integer(int(self.action_type)))
+        if h.is_writing:
+            _encode_spell_id(self.spell, h)
+        else:
+            self.spell = _decode_spell_id(h)
+        self.target = h.vector(self.target, BattleActionDestination)
+
+
+# ============================================================================
 # Network Pack Types
 # ============================================================================
 
@@ -1390,6 +1464,28 @@ class CPack(Serializeable):
 class CPackForClient(CPack):
     """Base class for packs sent to client"""
     pass
+
+
+class CPackForServer(CPack):
+    """Base class for packs sent to server"""
+    player: int = 255
+    request_id: int = 0
+
+    def serialize(self, h):
+        self.player = h.integer(self.player)
+        self.request_id = h.integer(self.request_id)
+
+
+@dataclass
+class MakeAction(CPackForServer):
+    """Battle action to be sent from AI to game"""
+    ba: BattleAction = field(default_factory=BattleAction)
+    battle_id: BattleID = field(default_factory=lambda: BattleID(0))
+
+    def serialize(self, h):
+        CPackForServer.serialize(self, h)
+        self.ba.serialize(h)
+        self.battle_id = BattleID(h.integer(self.battle_id.value))
 
 
 @dataclass
@@ -1430,12 +1526,14 @@ Serializeable.__registry__[77] = BattleInfo
 Serializeable.__registry__[132] = BattleStart
 Serializeable.__registry__[133] = BattleNextRound
 Serializeable.__registry__[134] = BattleSetActiveStack
+Serializeable.__registry__[198] = MakeAction
 
 # Type ID registry for polymorphic deserialization
 CPACK_TYPE_REGISTRY = {
     132: BattleStart,
     133: BattleNextRound,
     134: BattleSetActiveStack,
+    198: MakeAction,
 }
 
 
@@ -1451,25 +1549,35 @@ def create_pack_from_type_id(type_id: int) -> Optional[CPack]:
 # Pack Deserialization / Serialization
 # ============================================================================
 
-def deserialize_pack(data: bytes) -> Optional[CPack]:
+def deserialize_pack(data: bytes, loaded_strings: list = None) -> tuple:
     """
     Deserialize a network pack from binary data.
 
+    Args:
+        data: The binary data to deserialize
+        loaded_strings: Optional list to persist string references across calls.
+                       If provided, will be modified in-place and should be
+                       shared across all deserializations for the same connection.
+
     Returns:
-        The deserialized CPack object, or None if deserialization fails
+        Tuple of (pack_object, loaded_strings) or (None, loaded_strings) if deserialization fails
     """
     if len(data) == 0:
         logger.info(f"Received heartbeat message")
-        return None
+        return None, loaded_strings
 
     try:
         deserializer = BinaryDeserializer(data, version=SerializationVersion.CURRENT)
+        
+        # Restore loaded strings state if provided
+        if loaded_strings is not None:
+            deserializer._loaded_strings = loaded_strings
 
         # Load pack header: null check + pointer_id + type_id
         is_null = deserializer.load_bool()
         if is_null:
             logger.warning("Received null pack")
-            return None
+            return None, loaded_strings
 
         pointer_id = deserializer.load_integer()
         type_id = deserializer.load_encoded_integer()
@@ -1478,7 +1586,7 @@ def deserialize_pack(data: bytes) -> Optional[CPack]:
         pack_obj = create_pack_from_type_id(type_id)
         if pack_obj is None:
             logger.warning(f"Unknown pack type ID: {type_id}")
-            return None
+            return None, loaded_strings
 
         # Store metadata for round-trip serialization
         pack_obj._pack_pointer_id = pointer_id
@@ -1494,11 +1602,13 @@ def deserialize_pack(data: bytes) -> Optional[CPack]:
             )
 
         logger.info(f"Successfully deserialized pack: {pack_obj.__class__.__name__}")
-        return pack_obj
+        
+        # Return the updated loaded_strings for persistence
+        return pack_obj, deserializer._loaded_strings
 
     except Exception as e:
         logger.error(f"Failed to deserialize pack: {e}", exc_info=True)
-        return None
+        return None, loaded_strings
 
 
 def serialize_pack(pack_obj: CPack) -> bytes:

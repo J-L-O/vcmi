@@ -33,6 +33,7 @@ CRLBattleAI::CRLBattleAI()
 	, networkHandler(INetworkHandler::createHandler())
 	, threadNetwork(&CRLBattleAI::threadRunNetwork, this)
 	, actionReady(false)
+	, nextAction()
 	, wasWaitingForRealize(false)
 	, wasUnlockingGs(false)
 {
@@ -114,7 +115,6 @@ void CRLBattleAI::yourTacticPhase(const BattleID & battleID, int distance)
 
 void CRLBattleAI::activeStack(const BattleID & battleID, const CStack * stack)
 {
-	//boost::this_thread::sleep_for(boost::chrono::seconds(2));
 	print("activeStack called for " + stack->nodeName());
 
 	BattleStart pack;
@@ -135,99 +135,38 @@ void CRLBattleAI::activeStack(const BattleID & battleID, const CStack * stack)
 	BattleSideArray<const CGHeroInstance*>heroes{hero1, hero2};
 
 	pack.info = BattleInfo::setupBattle(const_cast<IGameInfoCallback*>(env->game()), tile, terrain, battlefieldType, armies, heroes, layout, town);
-	
-	// Debug: Print BattleInfo contents in serialization order
-	if (pack.info) {
-		print("BattleInfo serialization contents:");
-		print("  battleID: " + std::to_string(pack.info->battleID.getNum()));
-		
-		// sides array - using public getSide methods
-		const auto& attackerSide = pack.info->getSide(BattleSide::ATTACKER);
-		const auto& defenderSide = pack.info->getSide(BattleSide::DEFENDER);
-		
-		print("  sides[0] (attacker):");
-		print("    color: " + std::to_string(static_cast<int>(attackerSide.color)));
-		print("    heroID: " + ObjectInstanceID::encode(attackerSide.heroID.getNum()));
-		print("    armyObjectID: " + ObjectInstanceID::encode(attackerSide.armyObjectID.getNum()));
-		print("    castSpellsCount: " + std::to_string(attackerSide.castSpellsCount));
-		print("    usedSpellsHistory size: " + std::to_string(attackerSide.usedSpellsHistory.size()));
-		print("    enchanterCounter: " + std::to_string(attackerSide.enchanterCounter));
-		print("    initialMana: " + std::to_string(attackerSide.initialMana));
-		print("    additionalMana: " + std::to_string(attackerSide.additionalMana));
-		
-		print("  sides[1] (defender):");
-		print("    color: " + std::to_string(static_cast<int>(defenderSide.color)));
-		print("    heroID: " + ObjectInstanceID::encode(defenderSide.heroID.getNum()));
-		print("    armyObjectID: " + ObjectInstanceID::encode(defenderSide.armyObjectID.getNum()));
-		print("    castSpellsCount: " + std::to_string(defenderSide.castSpellsCount));
-		print("    usedSpellsHistory size: " + std::to_string(defenderSide.usedSpellsHistory.size()));
-		print("    enchanterCounter: " + std::to_string(defenderSide.enchanterCounter));
-		print("    initialMana: " + std::to_string(defenderSide.initialMana));
-		print("    additionalMana: " + std::to_string(defenderSide.additionalMana));
-		
-		print("  round: " + std::to_string(pack.info->round));
-		print("  activeStack: " + std::to_string(pack.info->activeStack));
-		print("  townID: " + ObjectInstanceID::encode(pack.info->townID.getNum()));
-		print("  tile: " + pack.info->tile.toString());
-		print("  stacks count: " + std::to_string(pack.info->stacks.size()));
-		print("  obstacles count: " + std::to_string(pack.info->obstacles.size()));
-		
-		// SiegeInfo
-		print("  siegeInfo:");
-		print("    wallState size: " + std::to_string(pack.info->si.wallState.size()));
-		print("    gateState: " + std::to_string(static_cast<int>(pack.info->si.gateState)));
-		
-		print("  battlefieldType: " + std::to_string(static_cast<int>(pack.info->battlefieldType)));
-		print("  terrainType: " + std::to_string(static_cast<int>(pack.info->terrainType)));
-		print("  tacticsSide: " + std::to_string(static_cast<int>(pack.info->tacticsSide)));
-		print("  tacticDistance: " + std::to_string(pack.info->tacticDistance));
-		
-		// CBonusSystemNode fields (basic info)
-		print("  CBonusSystemNode:");
-		auto& bonuses = pack.info->getExportedBonusList();
-		print("    exported bonuses count: " + std::to_string(bonuses.size()));
 
-		// Log each bonus for debugging
-		for (const auto& bonus : bonuses)
-		{
-			print("    Bonus:");
-			print("      duration: " + std::to_string(static_cast<int>(bonus->duration)));
-			print("      type: " + std::to_string(static_cast<int>(bonus->type)));
-			print("      subtype: " + bonus->subtype.toString());
-			print("      source: " + std::to_string(static_cast<int>(bonus->source)));
-			print("      val: " + std::to_string(bonus->val));
-			print("      sid: " + bonus->sid.toString());
-			print("      valType: " + std::to_string(static_cast<int>(bonus->valType)));
-			print("      turnsRemain: " + std::to_string(bonus->turnsRemain));
-			print("      effectRange: " + std::to_string(static_cast<int>(bonus->effectRange)));
-
-			// Enhanced limiter logging with type information
-			if (bonus->limiter)
-			{
-				// Get the type name using typeid for safety
-				const std::type_info& typeInfo = typeid(*bonus->limiter);
-				std::string limiterTypeName = typeInfo.name();
-				print("      limiter: " + limiterTypeName + " (exists)");
-			}
-			else
-			{
-				print("      limiter: null");
-			}
-
-			print("      targetSourceType: " + std::to_string(static_cast<int>(bonus->targetSourceType)));
-		}
-		
-		print("  replayAllowed: " + std::string(pack.info->replayAllowed ? "true" : "false"));
+	// Set the active stack in BattleInfo so the RL server knows which unit to act
+	if (pack.info)
+	{
+		pack.info->activeStack = stack->unitId();
+		print("Set activeStack to " + std::to_string(pack.info->activeStack));
 	}
-	
+
 	logicConnection->sendPack(pack);
 
 	{
 		std::unique_lock lk(actionMtx);
 		actionCV.wait(lk, [this]{ return actionReady; });
 
-		cb->battleMakeUnitAction(battleID, BattleAction::makeDefend(stack));
+		BattleAction actionToExecute;
+		if (nextAction.side != BattleSide::NONE && nextAction.actionType != EActionType::NO_ACTION)
+		{
+			print("Using action received from server: " + std::to_string(static_cast<int>(nextAction.actionType)));
+			actionToExecute = nextAction;
+			// Override stack number with the actual stack that should act
+			actionToExecute.stackNumber = stack->unitId();
+			print("Overriding stack number to " + std::to_string(actionToExecute.stackNumber));
+		}
+		else
+		{
+			print("No valid action received, falling back to defend");
+			actionToExecute = BattleAction::makeDefend(stack);
+		}
+
+		cb->battleMakeUnitAction(battleID, actionToExecute);
 		actionReady = false;
+		nextAction = BattleAction();
 		actionCV.notify_one();
 	}
 }
@@ -288,19 +227,34 @@ void CRLBattleAI::battleCatapultAttacked(const BattleID & battleID, const Catapu
 	print("battleCatapultAttacked called");
 }
 
-// const std::shared_ptr<INetworkConnection> &, const std::vector<std::byte> & message
 void CRLBattleAI::onPacketReceived(const std::shared_ptr<INetworkConnection> &, const std::vector<std::byte> &message) {
-	// std::unique_ptr<CPack> pack = logicConnection->retrievePack(message);
 	auto pack = logicConnection->retrievePack(message);
 
-	std::unique_lock lk(actionMtx);
-	actionCV.wait(lk, [this]{ return !actionReady; });
+	if (pack)
+	{
+		MakeAction * makeAction = dynamic_cast<MakeAction *>(pack.get());
+		if (makeAction)
+		{
+			std::unique_lock lk(actionMtx);
+			actionCV.wait(lk, [this]{ return !actionReady; });
 
-	// TODO: Set nextAction from pack contents
-	actionReady = true;
-	actionCV.notify_one();
-	// ServerHandlerCPackVisitor visitor(*this);
-	// pack->visit(visitor);
+			nextAction = makeAction->ba;
+			print("Received MakeAction: side=" + std::to_string(static_cast<int>(nextAction.side))
+				+ " stackNumber=" + std::to_string(nextAction.stackNumber)
+				+ " actionType=" + std::to_string(static_cast<int>(nextAction.actionType)));
+
+			actionReady = true;
+			actionCV.notify_one();
+		}
+		else
+		{
+			print("Received pack is not a MakeAction");
+		}
+	}
+	else
+	{
+		print("Received null pack");
+	}
 }
 
 void CRLBattleAI::onConnectionFailed(const std::string &errorMessage) {
