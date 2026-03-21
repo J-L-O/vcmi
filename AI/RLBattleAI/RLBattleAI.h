@@ -17,6 +17,7 @@
 #include "callback/CBattleGameInterface.h"
 #include "network/NetworkConnection.h"
 #include "lib/networkPacks/PacksForClient.h"
+#include "lib/networkPacks/PacksForServer.h"
 #include "serializer/GameConnection.h"
 
 
@@ -41,6 +42,7 @@ class CRLBattleAI : public CBattleGameInterface, INetworkClientListener
 	std::thread threadNetwork;
 
 	bool actionReady;
+	BattleAction nextAction;
 	std::mutex actionMtx;
 	std::condition_variable actionCV;
 

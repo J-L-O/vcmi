@@ -1392,6 +1392,113 @@ class CPackForClient(CPack):
     pass
 
 
+class CPackForServer(CPack):
+    """Base class for packs sent to server"""
+
+    def __init__(self):
+        super().__init__()
+        self.player: int = PlayerColor.NEUTRAL  # PlayerColor num (int32)
+        self.request_id: int = 0  # uint32
+
+    def serialize_base(self, h):
+        """Serialize the CPackForServer base fields (player + requestID)"""
+        self.player = h.integer(self.player)
+        self.request_id = h.integer(self.request_id)
+
+
+# ============================================================================
+# Battle Action Types
+# ============================================================================
+
+class EActionType(IntEnum):
+    """Battle action types matching C++ EActionType (int8_t)"""
+    NO_ACTION = 0
+    END_TACTIC_PHASE = 1
+    RETREAT = 2
+    SURRENDER = 3
+    HERO_SPELL = 4
+    WALK = 5
+    WAIT = 6
+    DEFEND = 7
+    WALK_AND_ATTACK = 8
+    SHOOT = 9
+    CATAPULT = 10
+    MONSTER_SPELL = 11
+    BAD_MORALE = 12
+    STACK_HEAL = 13
+
+
+class DestinationInfo(Serializeable):
+    """Target destination for a battle action"""
+
+    def __init__(self):
+        super().__init__()
+        self.unit_value: int = -1  # int32_t, -1 = no unit
+        self.hex_value: BattleHex = BattleHex()
+
+    def serialize(self, h):
+        self.unit_value = h.integer(self.unit_value)
+        self.hex_value = h.object_(self.hex_value, BattleHex)
+
+
+class BattleAction(Serializeable):
+    """A battle action (defend, walk, attack, etc.)"""
+
+    def __init__(self):
+        super().__init__()
+        self.side: BattleSide = BattleSide.ATTACKER
+        self.stack_number: int = 0  # ui32
+        self.action_type: EActionType = EActionType.NO_ACTION
+        self.spell: str = ""  # SpellID serialized as string (EntityIdentifierWithEnum)
+        self.target: List[DestinationInfo] = []
+
+    def serialize(self, h):
+        self.side = BattleSide(h.integer(int(self.side)))
+        self.stack_number = h.integer(self.stack_number)
+        self.action_type = EActionType(h.integer(int(self.action_type)))
+        self.spell = h.string(self.spell)
+        # target is std::vector<DestinationInfo> - inline objects
+        length = h.integer(len(self.target))
+        if h.is_reading:
+            self.target = [h.object_(None, DestinationInfo) for _ in range(length)]
+        else:
+            for t in self.target:
+                h.object_(t, DestinationInfo)
+
+    @staticmethod
+    def make_defend(stack_id: int, side: BattleSide = BattleSide.ATTACKER) -> 'BattleAction':
+        """Create a defend action for the given stack"""
+        action = BattleAction()
+        action.side = side
+        action.stack_number = stack_id
+        action.action_type = EActionType.DEFEND
+        return action
+
+    @staticmethod
+    def make_wait(stack_id: int, side: BattleSide = BattleSide.ATTACKER) -> 'BattleAction':
+        """Create a wait action for the given stack"""
+        action = BattleAction()
+        action.side = side
+        action.stack_number = stack_id
+        action.action_type = EActionType.WAIT
+        return action
+
+
+@dataclass
+class MakeAction(CPackForServer):
+    """Pack wrapping a BattleAction, sent from Python to C++ (type ID 198)"""
+
+    def __init__(self):
+        super().__init__()
+        self.ba: BattleAction = BattleAction()
+        self.battle_id: BattleID = BattleID(0)
+
+    def serialize(self, h):
+        self.serialize_base(h)
+        self.ba = h.object_(self.ba, BattleAction)
+        self.battle_id = BattleID(h.integer(self.battle_id.value))
+
+
 @dataclass
 class BattleStart(CPackForClient):
     """Battle start notification pack"""
@@ -1430,12 +1537,14 @@ Serializeable.__registry__[77] = BattleInfo
 Serializeable.__registry__[132] = BattleStart
 Serializeable.__registry__[133] = BattleNextRound
 Serializeable.__registry__[134] = BattleSetActiveStack
+Serializeable.__registry__[198] = MakeAction
 
 # Type ID registry for polymorphic deserialization
 CPACK_TYPE_REGISTRY = {
     132: BattleStart,
     133: BattleNextRound,
     134: BattleSetActiveStack,
+    198: MakeAction,
 }
 
 
@@ -1451,9 +1560,15 @@ def create_pack_from_type_id(type_id: int) -> Optional[CPack]:
 # Pack Deserialization / Serialization
 # ============================================================================
 
-def deserialize_pack(data: bytes) -> Optional[CPack]:
+def deserialize_pack(data: bytes, loaded_strings: list = None) -> Optional[CPack]:
     """
     Deserialize a network pack from binary data.
+
+    Args:
+        data: Binary data to deserialize
+        loaded_strings: Optional list of previously loaded strings for string interning.
+                       The C++ serializer maintains string interning across multiple sends,
+                       so this list must be preserved across calls for the same connection.
 
     Returns:
         The deserialized CPack object, or None if deserialization fails
@@ -1464,6 +1579,10 @@ def deserialize_pack(data: bytes) -> Optional[CPack]:
 
     try:
         deserializer = BinaryDeserializer(data, version=SerializationVersion.CURRENT)
+
+        # Restore string interning state from previous messages on this connection
+        if loaded_strings is not None:
+            deserializer._loaded_strings = loaded_strings
 
         # Load pack header: null check + pointer_id + type_id
         is_null = deserializer.load_bool()
@@ -1499,6 +1618,11 @@ def deserialize_pack(data: bytes) -> Optional[CPack]:
     except Exception as e:
         logger.error(f"Failed to deserialize pack: {e}", exc_info=True)
         return None
+
+
+def deserialize_pack_with_strings(data: bytes, loaded_strings: list) -> Optional[CPack]:
+    """Convenience wrapper that passes string interning state."""
+    return deserialize_pack(data, loaded_strings)
 
 
 def serialize_pack(pack_obj: CPack) -> bytes:
